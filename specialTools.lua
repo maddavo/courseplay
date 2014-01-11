@@ -41,8 +41,19 @@ function courseplay:setNameVariable(workTool)
 
 	--------------------------------------------------------------
 
+	--Horsch SW 3500 S/Pronto 6 AS [bullgore et al.]
+	if workTool.cp.hasSpecializationHorschSW3500S then
+		workTool.cp.isHorschSW3500S = true;
+	elseif workTool.cp.hasSpecializationHorschPronto6AS then --Note: is valid for both the Pronto 6 AS and the Maistro RC
+		workTool.cp.isHorschPronto6AS = true;
+		workTool.cp.isHorschAttachable = false;
+
+	--Claas Quantum 3800K [Vertex Design]
+	elseif workTool.psGrassactive ~= nil and workTool.psStrawactive ~= nil then --and Utils.endsWith(workTool.configFileName, 'claas_quantum_3800k.xml') then
+		workTool.cp.isClaasQuantum3800K = true;
+
 	--Poettinger Eurocat 315H [MoreRealistic]
-	if workTool.typeName == 'moreRealistic.mower_animated' and Utils.endsWith(workTool.configFileName, 'poettingerEurocat315H.xml') then
+	elseif workTool.typeName == 'moreRealistic.mower_animated' and Utils.endsWith(workTool.configFileName, 'poettingerEurocat315H.xml') then
 		workTool.cp.isMRpoettingerEurocat315H = true;
 
 	--Case IH Magnum 340 [Giants Titanium]
@@ -289,7 +300,7 @@ end;
 ------------------------------------------------------------------------------------------
 
 function courseplay:isSpecialSowingMachine(workTool)
-	return workTool.cp.hasSpecializationSowingMachineWithTank;
+	return workTool.cp.hasSpecializationSowingMachineWithTank or workTool.cp.isHorschSW3500S or workTool.cp.isHorschPronto6AS;
 end;
 
 function courseplay:isSpecialSprayer(workTool)
@@ -362,8 +373,161 @@ function courseplay:handleSpecialTools(self,workTool,unfold,lower,turnOn,allowed
 		workTool:setPTO(false)
 	end
 
+	--Horsch SW 3500 S / Pronto 6 AS [bullgore et al.]
+	if workTool.cp.isHorschSW3500S then
+		if not workTool.horschImplement.attached then
+			allowedToDrive = false;
+			self.cp.infoText = 'Seeder unit needed'; --TODO: i18n
+		else
+
+			local isFoldingUnfolding = workTool.Done.trsp;
+			local isUnfolded = not isFoldingUnfolding and workTool.CheckDone.trsp;
+			local isLoweringRaising = workTool.Done.down;
+			local isLowered = not isLoweringRaising and workTool.CheckDone.down;
+			local isRaised = not isLoweringRaising and not workTool.CheckDone.down;
+			-- renderText(0.4, 0.40, 0.02, string.format('isFoldingUnfolding=%s, isUnfolded=%s', tostring(isFoldingUnfolding), tostring(isUnfolded)));
+			-- renderText(0.4, 0.38, 0.02, string.format('isLoweringRaising=%s, isLowered=%s, isRaised=%s', tostring(isLoweringRaising), tostring(isLowered), tostring(isRaised)));
+
+			if allowedToDrive and (isFoldingUnfolding or isLoweringRaising) then
+				allowedToDrive = false;
+			end;
+
+			--unfold/fold
+			if unfold ~= nil then
+				if isUnfolded ~= unfold and isRaised and not isLoweringRaising and not workTool.turnOn and not isFoldingUnfolding then
+					workTool:setStateEvent('Speed', 'trsp', 1.0);
+					workTool:setStateEvent('Go', 'trsp', unfold);
+					workTool:setStateEvent('Done', 'trsp', true);
+					if unfold then
+						print(string.format('%s: unfold order', nameNum(workTool)));
+					else
+						print(string.format('%s: fold order', nameNum(workTool)));
+					end;
+				end;
+			end;
+
+			--lower/raise
+			if lower ~= nil then
+				if lower ~= isLowered and isUnfolded and not isLoweringRaising then
+					workTool:setStateEvent('Speed', 'down', 1.0);
+					workTool:setStateEvent('Go', 'down', lower);
+					workTool:setStateEvent('Done', 'down', true);
+					if lower then
+						print(string.format('%s: lower order', nameNum(workTool)));
+					else
+						print(string.format('%s: raise order', nameNum(workTool)));
+					end;
+				end;
+			end;
+
+			--turn on/off
+			if turnOn ~= nil then
+				if turnOn ~= workTool.turnOn and isUnfolded then
+					workTool:setStateEvent('turnOn', false, turnOn);
+					if turnOn then
+						print(string.format('%s: turn on order', nameNum(workTool)));
+					else
+						print(string.format('%s: turn off order', nameNum(workTool)));
+					end;
+				end;
+			end;
+
+			--ridgeMarkers
+			if ridgeMarker ~= nil and self.cp.ridgeMarkersAutomatic and isUnfolded then
+				local seeder = workTool.horschImplement.Object;
+				if ridgeMarker == 0 and (seeder.Go.spurlinks or seeder.Go.spurrechts) then --none
+					if seeder.Go.spurlinks and not seeder.Done.spurlinks then
+						seeder:setStateEvent('Speed', 'spurlinks', 2.8);
+						seeder:setStateEvent('Go', 'spurlinks', false);
+						seeder:setStateEvent('Done', 'spurlinks', true);
+						print(string.format('%s: ridgeMarker=%d -> set "Go.spurlinks" to false', nameNum(workTool), ridgeMarker));
+					end;
+					if seeder.Go.spurrechts and not seeder.Done.spurrechts then
+						seeder:setStateEvent('Speed', 'spurrechts', 2.8);
+						seeder:setStateEvent('Go', 'spurrechts', false);
+						seeder:setStateEvent('Done', 'spurrechts', true);
+						print(string.format('%s: ridgeMarker=%d -> set "Go.spurrechts" to false', nameNum(workTool), ridgeMarker));
+					end;
+				elseif ridgeMarker == 1 then --left
+					if not seeder.Go.spurlinks and not seeder.Done.spurlinks then
+						seeder:setStateEvent('Speed', 'spurlinks', 2.8);
+						seeder:setStateEvent('Go', 'spurlinks', true);
+						seeder:setStateEvent('Done', 'spurlinks', true);
+						print(string.format('%s: ridgeMarker=%d -> set "Go.spurlinks" to true', nameNum(workTool), ridgeMarker));
+					end;
+					if seeder.Go.spurrechts and not seeder.Done.spurrechts then
+						seeder:setStateEvent('Speed', 'spurrechts', 2.8);
+						seeder:setStateEvent('Go', 'spurrechts', false);
+						seeder:setStateEvent('Done', 'spurrechts', true);
+						print(string.format('%s: ridgeMarker=%d -> set "Go.spurrechts" to false', nameNum(workTool), ridgeMarker));
+					end;
+				elseif ridgeMarker == 2 then --right
+					if seeder.Go.spurlinks and not seeder.Done.spurlinks then
+						seeder:setStateEvent('Speed', 'spurlinks', 2.8);
+						seeder:setStateEvent('Go', 'spurlinks', false);
+						seeder:setStateEvent('Done', 'spurlinks', true);
+						print(string.format('%s: ridgeMarker=%d -> set "Go.spurlinks" to false', nameNum(workTool), ridgeMarker));
+					end;
+					if not seeder.Go.spurrechts and not seeder.Done.spurrechts then
+						seeder:setStateEvent('Speed', 'spurrechts', 2.8);
+						seeder:setStateEvent('Go', 'spurrechts', true);
+						seeder:setStateEvent('Done', 'spurrechts', true);
+						print(string.format('%s: ridgeMarker=%d -> set "Go.spurrechts" to true', nameNum(workTool), ridgeMarker));
+					end;
+				end;
+			end;
+
+			--[
+			--refilling at silo trigger
+			if self.cp.waitPoints[3] ~= nil and self.cp.last_recordnumber >= self.cp.waitPoints[3] - 5 and self.cp.last_recordnumber <= self.cp.waitPoints[3] + 1 then
+				local isTankLidOpeningClosing = workTool.Done.tank;
+				local isTankLidOpen = not isTankLidOpeningClosing and workTool.CheckDone.tank;
+				local isTankLidClosed = not isTankLidOpeningClosing and not workTool.CheckDone.tank;
+				-- renderText(0.4, 0.36, 0.02, string.format('isTankLidOpeningClosing=%s, isTankLidOpen=%s, isTankLidClosed=%s', tostring(isTankLidOpeningClosing), tostring(isTankLidOpen), tostring(isTankLidClosed)));
+
+				if self.cp.last_recordnumber >= self.cp.waitPoints[3] - 5 and workTool.fillLevel < workTool.capacity then
+					--open tank lid
+					if not isTankLidOpen and not isTankLidOpeningClosing then
+						workTool:setStateEvent('Go', 'tank', true);
+						workTool:setStateEvent('Done', 'tank', true);
+						print(string.format('%s: cover open order', nameNum(workTool)));
+					end;
+					if allowedToDrive and self.cp.last_recordnumber == self.cp.waitPoints[3] then
+						allowedToDrive = false;
+					end;
+				elseif workTool.fillLevel >= workTool.capacity then
+					--close tank lid
+					if not isTankLidClosed and not isTankLidOpeningClosing then
+						workTool:setStateEvent('Go', 'tank', false);
+						workTool:setStateEvent('Done', 'tank', true);
+						print(string.format('%s: cover close order', nameNum(workTool)));
+					end;
+				end;
+			end;
+			--]]
+		end;
+
+		return true, allowedToDrive;
+
+	--Claas Quantum 3800K [Vertex Design]
+	elseif workTool.cp.isClaasQuantum3800K then
+		--correctly turn off the grass particle system, as it's not being done in the trailer's "Pickup" spec
+		if turnOn ~= nil then
+			if turnOn then
+				if workTool.cp.hasDeactivatedGrassPS then
+					workTool.cp.hasDeactivatedGrassPS = false;
+				end;
+			elseif not turnOn and not workTool.psGrassactive and not workTool.cp.hasDeactivatedGrassPS then
+				for _, ps in pairs(workTool.grassParticleSystems) do
+					Utils.setEmittingState(ps.particleSystem, false);
+				end;
+				workTool.cp.hasDeactivatedGrassPS = true;
+			end;
+		end;
+		return false, allowedToDrive;
+
 	--Zunhammer Liquid Manure Pack [Eifok Team]
-	if workTool.cp.isEifokZunhammer18500PU then
+	elseif workTool.cp.isEifokZunhammer18500PU then
 		if workTool.cp.hasEifokZunhammerAttachable then
 			local attachable = workTool.cp.eifokZunhammerAttachable;
 
@@ -1135,7 +1299,11 @@ function courseplay:askForSpecialSettings(self,object)
 	end;
 
 
-	if object.cp.isAugerWagon then
+	if object.cp.isHorschSW3500S or object.cp.isHorschPronto6AS then
+		self.cp.aiTurnNoBackward = true;
+		courseplay:debug(string.format('%s: self.cp.aiTurnNoBackward = true', nameNum(object)), 6);
+
+	elseif object.cp.isAugerWagon then
 		if object.cp.foldPipeAtWaitPoint then
 			--object.cp.backPointsUnfoldPipe = 1;
 			object.cp.forwardPointsFoldPipe = 0;
