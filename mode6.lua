@@ -34,11 +34,14 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 		hasFinishedWork = true
 	end
 
-	-- TODO: (Claus) Should we use this? (New stuff)
-	--[[if self.sampleThreshingStart and isSamplePlaying(self.sampleThreshingStart.sample) then
-		allowedToDrive = false;
-		self.cp.infoText = string.format(courseplay:loc("COURSEPLAY_STARTING_UP_TOOL"), nameNum(self));
-	end;]]
+	-- Wait until we have fully started up Threshing
+	if self.sampleThreshingStart and isSamplePlaying(self.sampleThreshingStart.sample) then
+		-- Only allow us to drive if we are moving backwards.
+		if not self.cp.isReverseBackToPoint then
+			allowedToDrive = false;
+		end;
+		self.cp.infoText = string.format(courseplay:loc("COURSEPLAY_STARTING_UP_TOOL"), tostring(self.name));
+	end;
 
 	local selfIsFolding, selfIsFolded, selfIsUnfolded = courseplay:isFolding(self);
 	for i=1, #(self.tippers) do
@@ -434,6 +437,7 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 								tool:setIsTurnedOn(false);
 							end;
 							if tankFillLevelPct < 80 and (not tool.cp.stopWhenUnloading or (tool.cp.stopWhenUnloading and (tool.courseplayers == nil or tool.courseplayers[1] == nil))) then
+								courseplay:setReverseBackDistance(self, 2);
 								tool.waitingForDischarge = false;
 								if not weatherStop and not isTurnedOn then
 									tool:setIsTurnedOn(true);
@@ -453,6 +457,16 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 						end
 
 					end
+
+					-- Make sure we are lowered when working the field.
+					if allowedToDrive and isTurnedOn and not workTool:isLowered() and not self.cp.isReverseBackToPoint then
+						courseplay:lowerImplements(tool, true, false);
+					end;
+
+					-- If we are moving a bit back, don't lower the tool before we move forward again.
+					if isTurnedOn and workTool:isLowered() and self.cp.isReverseBackToPoint then
+						courseplay:lowerImplements(tool, false, false);
+					end;
 				end
 			 --Stop combine
 			elseif self.recordnumber == self.cp.stopWork or self.cp.abortWork ~= nil then
