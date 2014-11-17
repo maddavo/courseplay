@@ -36,6 +36,7 @@ courseplay.sonOfaBangSonOfaBoom = {
 	['6fbb6a98a4054b1d603bd8c591d572af'] = true;
 	['87a96c3bb39fa285d7ed2fb5beaffc16'] = true;
 	['d4043d2f9265e18c794be4159faaef5c'] = true;
+	['e7c005e4b4b759e0946fcf418f6ba416'] = true;
 };
 courseplay.isDeveloper = courseplay.sonOfaBangSonOfaBoom[getMD5(g_settingsNickname)];
 if courseplay.isDeveloper then
