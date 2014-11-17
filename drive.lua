@@ -9,6 +9,7 @@ function courseplay:drive(self, dt)
 	end;
 	
 	local refSpeed = 0
+	local line = 0
 	local cx,cy,cz = 0,0,0
 	-- may i drive or should i hold position for some reason?
 	local allowedToDrive = true
@@ -29,6 +30,7 @@ function courseplay:drive(self, dt)
 	if self.cp.mode == 7 then
 		local continue;
 		continue, cx, cy, cz, refSpeed, allowedToDrive = courseplay:handleMode7(self, cx, cy, cz, refSpeed, allowedToDrive);
+		line = 32
 		if not continue then
 			return;
 		end;
@@ -114,11 +116,18 @@ function courseplay:drive(self, dt)
 	-- BEACON LIGHTS
 	if self.cp.beaconLightsMode == 1 then --on streets only
 		local combineNeedsBeacon = self.cp.isCombine and (self.fillLevel / self.capacity) > 0.8;
-		if (self.cp.speeds.sl == 3 and not self.beaconLightsActive)
-		or (self.cp.speeds.sl ~= 3 and self.beaconLightsActive and not combineNeedsBeacon)
-		or (self.cp.mode == 6 and combineNeedsBeacon and not self.beaconLightsActive)
-		or (self.cp.mode == 7 and self.isAIThreshing == self.beaconLightsActive) then
-			self:setBeaconLightsVisibility(not self.beaconLightsActive);
+		local goForBeaconLights = ((self.cp.mode == 1 or self.cp.mode == 2 or self.cp.mode == 5) and self.recordnumber > 2) 
+								or (self.cp.mode == 4 or self.cp.mode == 6 and self.cp.abortWork ~= nil)
+								or combineNeedsBeacon;
+								
+		if goForBeaconLights then
+			if not self.beaconLightsActive then
+				self:setBeaconLightsVisibility(true);
+			end
+		else
+			if self.beaconLightsActive then
+				self:setBeaconLightsVisibility(false);
+			end
 		end;
 
 	elseif self.cp.beaconLightsMode == 2 then --always
@@ -485,38 +494,44 @@ function courseplay:drive(self, dt)
 		(not isAtEnd and (self.Waypoints[self.recordnumber].rev or self.Waypoints[self.recordnumber + 1].rev or self.Waypoints[self.recordnumber + 2].rev)) or
 		(workSpeed ~= nil and workSpeed == 0.5) 
 	then
-		--self.cp.speeds.sl = 1;
 		refSpeed = self.cp.speeds.turn;
+		line = 497
 	elseif ((self.cp.mode == 2 or self.cp.mode == 3) and isAtStart) or (workSpeed ~= nil and workSpeed == 1) then
-		--self.cp.speeds.sl = 2;
 		refSpeed = self.cp.speeds.field;
+		line = 500
 	else
+		local mode7onCourse = true
 		if self.cp.mode ~= 7 then
-		--self.cp.speeds.sl = 3;
 			refSpeed = self.cp.speeds.street;
+			line = 506
+		elseif self.cp.modeState == 5 then
+			mode7onCourse = false
 		end
-		if self.cp.speeds.useRecordingSpeed and self.Waypoints[self.recordnumber].speed ~= nil then
-			refSpeed = Utils.clamp(refSpeed, 3/3600, self.Waypoints[self.recordnumber].speed);
+		if self.cp.speeds.useRecordingSpeed and self.Waypoints[self.recordnumber].speed ~= nil and mode7onCourse then
+			refSpeed = Utils.clamp(refSpeed, self.cp.speeds.crawl, self.Waypoints[self.recordnumber].speed);
+			line = 511
 		end;
 	end;
 	
+	
 	if self.cp.collidingVehicleId ~= nil then
 		refSpeed = courseplay:regulateTrafficSpeed(self, refSpeed, allowedToDrive);
+		line = 518
+		
 	end
 	
 	if self.cp.currentTipTrigger ~= nil then
 		if self.cp.currentTipTrigger.bunkerSilo ~= nil then
-			refSpeed = Utils.getNoNil(self.cp.speeds.unload, 3/3600);
+			refSpeed = Utils.getNoNil(self.cp.speeds.unload, self.cp.speeds.crawl);
 		else
 			refSpeed = self.cp.speeds.turn;
 		end;
-		self.cp.speeds.sl = 1;
 	elseif self.cp.isInFilltrigger then
 		refSpeed = self.cp.speeds.turn;
+		line = 530
 		if self.lastSpeedReal > self.cp.speeds.turn then
 			courseplay:brakeToStop(self);
 		end;
-		self.cp.speeds.sl = 1;
 		self.cp.isInFilltrigger = false;
 	end;
 
@@ -529,14 +544,15 @@ function courseplay:drive(self, dt)
 	--reverse
 	if self.Waypoints[self.recordnumber].rev then
 		lx,lz,fwd = courseplay:goReverse(self,lx,lz)
-		refSpeed = Utils.getNoNil(self.cp.speeds.unload, 3/3600)
+		refSpeed = Utils.getNoNil(self.cp.speeds.unload, self.cp.speeds.crawl)
+		line = 547
 	else
 		fwd = true
 	end
 
 	if self.cp.TrafficBrake then
 		if self.isRealistic then
-			AIVehicleUtil.mrDriveInDirection(self, dt, 1, false, true, 0, 1, self.cp.speeds.sl, true, true)
+			AIVehicleUtil.mrDriveInDirection(self, dt, 1, false, true, 0, 1, 3, true, true)
 			self.cp.TrafficBrake = false
 			self.cp.isTrafficBraking = false
 			self.cp.TrafficHasStopped = false
@@ -569,17 +585,12 @@ function courseplay:drive(self, dt)
 			self.cp.isReverseBackToPoint = false;
 		end;
 	end
-	
-	-- Speed Control
-	if self.cp.maxFieldSpeed ~= 0 then
-		refSpeed = min(self.cp.maxFieldSpeed, refSpeed);
-	end
-	
+	renderText(0.5,0.8,0.019,"refSpeed: "..tostring(refSpeed).." set in line: "..line)
 	if self.isRealistic then
-		courseplay:setMRSpeed(self, refSpeed, self.cp.speeds.sl, allowedToDrive, workArea);
+		courseplay:setMRSpeed(self, refSpeed, 3, allowedToDrive, workArea);
 	else
 		
-		courseplay:setSpeed(self, refSpeed, self.cp.speeds.sl)
+		courseplay:setSpeed(self, refSpeed)
 	end
 
 	-- DISTANCE TO CHANGE WAYPOINT
@@ -673,7 +684,7 @@ function courseplay:drive(self, dt)
 			if self.isRealistic then 
 				courseplay:driveInMRDirection(self, lx,lz,fwd, dt,allowedToDrive);
 			else
-				AIVehicleUtil.driveInDirection(self, dt, self.cp.steeringAngle, 0.5, 0.5, 8, true, fwd, lx, lz, self.cp.speeds.sl, 0.5);
+				AIVehicleUtil.driveInDirection(self, dt, self.cp.steeringAngle, 0.5, 0.5, 8, true, fwd, lx, lz, 3, 0.5);
 			end
 			if not isBypassing then
 				courseplay:setTrafficCollision(self, lx, lz, workArea)
@@ -796,86 +807,15 @@ function courseplay:deleteCollisionVehicle(vehicle)
 	end
 end
 
-function courseplay:setSpeed(vehicle, refSpeed, sl)
-	local newSpeed = math.max(refSpeed*3600,3)	
+function courseplay:setSpeed(vehicle, refSpeed)
+	local newSpeed = math.max(refSpeed,3)	
 	if vehicle.cruiseControl.state == 0 then
 		vehicle:setCruiseControlState(Drivable.CRUISECONTROL_STATE_ACTIVE)
 	end 
 	vehicle.cruiseControl.minSpeed = newSpeed   --TODO(Tom) thats rape, make it nice and clear when you know how
-end
 	
-function dummy()
-	
-	if vehicle.lastSpeedSave ~= vehicle.lastSpeedReal*3600 then
-		local refSpeedKph = refSpeed * 3600;
-		local lastSpeedKph = vehicle.lastSpeed * 3600;
-
-		if refSpeedKph == 1 then
-			refSpeed = 1.6 / 3600;
-			refSpeedKph = 1.6;
-		end
-		local trueRpm = vehicle.motor.lastMotorRpm*100/vehicle.cp.orgRpm[3];
-		local targetRpm = vehicle.motor.maxRpm[sl]*100/vehicle.cp.orgRpm[3];
-		local newLimit = 0;
-		local oldLimit = 0 ;
-		if vehicle.ESLimiter ~= nil then 
-			oldLimit =  vehicle.ESLimiter.percentage[sl+1];
-		else
-			oldLimit = targetRpm;
-		end;
-
-		local speedDelta = refSpeedKph - lastSpeedKph; -- accelerate
-		if speedDelta > 15 then
-			if sl == 2 then
-				newLimit = 75;
-			else
-				newLimit = 100;
-			end;
-		elseif speedDelta > 4 then
-			newLimit = oldLimit + 1;
-		elseif speedDelta > 0.5 then
-			newLimit = oldLimit + 0.1;
-		elseif speedDelta > 0 then
-			newLimit = oldLimit;
-		end;
-		if oldLimit - trueRpm > 10 then
-			if speedDelta < 1 then
-				newLimit = trueRpm;
-			end;
-		end;
-
-		speedDelta = lastSpeedKph - refSpeedKph; --decelerate
-		if speedDelta > 8 and vehicle.cp.isTurning == nil then
-			if sl == 1 then
-				newLimit = 20;
-			else
-				newLimit = oldLimit - 3;
-			end;
-		elseif speedDelta > 3 then
-			newLimit = oldLimit - 1;
-		elseif speedDelta > 1 then
-			newLimit = oldLimit - 0.75;
-		elseif speedDelta > 0.5 then
-			newLimit = oldLimit - 0.25;
-		elseif speedDelta > 0 then
-			newLimit = oldLimit;
-		end;
-
-		newLimit = Utils.clamp(newLimit, 0, 100);
-
-		if vehicle.ESLimiter ~= nil and vehicle.ESLimiter.maxRPM[5] ~= nil then
-			vehicle:setNewLimit(sl + 1, newLimit, false, true);
-		elseif vehicle.ESLimiter ~= nil and vehicle.ESLimiter.maxRPM[5] == nil then
-			--ESlimiter < V3
-		else
-			vehicle.motor.maxRpm[sl] = Utils.clamp(newLimit * vehicle.cp.orgRpm[3]/100, vehicle.motor.minRpm, vehicle.cp.orgRpm[3]);
-		end;
-
-		vehicle.lastSpeedSave = vehicle.lastSpeedReal*3600;
-	end;
-
-	-- slipping notification
-	if vehicle.lastSpeedSave < 0.5 and not vehicle.cp.inTraffic and not vehicle.Waypoints[vehicle.recordnumber].wait then
+		-- slipping notification
+	if vehicle.lastSpeedReal*3600 < 0.5 and not vehicle.cp.inTraffic and not vehicle.Waypoints[vehicle.recordnumber].wait then
 		if vehicle.cp.timers.slippingWheels == nil or vehicle.cp.timers.slippingWheels == 0 then
 			courseplay:setCustomTimer(vehicle, 'slippingWheels', 5);
 		elseif courseplay:timerIsThrough(vehicle, 'slippingWheels') then
@@ -885,49 +825,34 @@ function dummy()
 	-- reset timer
 	elseif vehicle.cp.timers.slippingWheels ~= 0 then
 		vehicle.cp.timers.slippingWheels = 0;
-	end;
-end;
-
+	end;	
+	
+end
+	
 function courseplay:openCloseCover(vehicle, dt, showCover, isAtTipTrigger)
 	for i,twc in pairs(vehicle.cp.tippersWithCovers) do
 		local tIdx, coverType, showCoverWhenTipping, coverItems = twc.tipperIndex, twc.coverType, twc.showCoverWhenTipping, twc.coverItems;
 		local tipper = vehicle.tippers[tIdx];
 
-		-- SMK-34 et al.
-		if coverType == 'setPlane' and tipper.plane.bOpen == showCover then
-			if showCoverWhenTipping and isAtTipTrigger and not showCover then
-				--
-			else
-				tipper:setPlane(not showCover);
-			end;
-
-		-- Hobein 18t et al.
-		elseif coverType == 'setCoverState' and tipper.cover.state ~= showCover then
-			tipper:setCoverState(showCover);
-
-		-- TUW et al.
-		elseif coverType == 'planeOpen' then
-			if showCover and tipper.planeOpen then
-				tipper:setAnimationTime(3, tipper.animationParts[3].offSet, false);
-			elseif not showCover and not tipper.planeOpen then
-				tipper:setAnimationTime(3, tipper.animationParts[3].animDuration, false);
-			end;
-
-		-- Marston / setSheet
-		elseif coverType == 'setSheet' and tipper.sheet.isActive ~= showCover then
-			tipper:setSheet(showCover);
-
 		-- default Giants trailers
-		elseif coverType == 'defaultGiants' then
-			for _,ci in pairs(coverItems) do
-				if getVisibility(ci) ~= showCover then
-					setVisibility(ci, showCover);
-				end;
+		if coverType == 'defaultGiants' then
+			if tipper.isCoverOpen == showCover then
+				tipper:setCoverState(not showCover);
 			end;
 
-		-- setCoverState (Giants Marshall DLC)
-		elseif coverType == 'setCoverStateGiants' and tipper.isCoverOpen == showCover then
-			tipper:setCoverState(not showCover);
+
+		-- Example: for mods trailer that don't use the default cover specialization
+		else--if coverType == 'CoverVehicle' then
+			--for _,ci in pairs(coverItems) do
+			--	if getVisibility(ci) ~= showCover then
+			--		setVisibility(ci, showCover);
+			--	end;
+			--end;
+			--if showCoverWhenTipping and isAtTipTrigger and not showCover then
+				--
+			--else
+			--	tipper:setPlane(not showCover);
+			--end;
 		end;
 	end; --END for i,tipperWithCover in vehicle.cp.tippersWithCovers
 end;
@@ -1113,7 +1038,7 @@ function courseplay:driveInMRDirection(vehicle, lx,lz,fwd,dt,allowedToDrive)
 		lz = -lz
 	end
 	--AIVehicleUtil.mrDriveInDirection(vehicle, dt, acceleration, allowedToDrive, moveForwards, lx, lz, speedLevel, useReduceSpeed, noDefaultHiredWorker)
-	AIVehicleUtil.mrDriveInDirection(vehicle, dt, 1, allowedToDrive, fwd, lx, lz, vehicle.cp.speeds.sl, true, true)
+	AIVehicleUtil.mrDriveInDirection(vehicle, dt, 1, allowedToDrive, fwd, lx, lz, 3, true, true)
 end
 
 
@@ -1295,8 +1220,8 @@ function courseplay:handleMapWeightStation(vehicle, allowedToDrive)
 		if vehicle.cp.totalLength and vehicle.cp.totalLength > 0 and vehicle.cp.totalLengthOffset then
 			stopAt = (vehicle.cp.totalLength * 0.5 + vehicle.cp.totalLengthOffset) * -1;
 		end;
-		local brakeDistance = pow(vehicle.cp.speeds.turn * 3600 * 0.1, 2);
-		-- local brakeDistance = pow(vehicle.lastSpeedReal * 3600 * 0.1, 2);
+		local brakeDistance = pow(vehicle.cp.speeds.turn * 0.1, 2);
+		-- local brakeDistance = pow(vehicle.lastSpeedReal * 0.1, 2);
 		-- local brakeDistance = 1;
 
 		-- tractor + trailer on scale -> stop

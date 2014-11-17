@@ -7,7 +7,7 @@ function courseplay:start(self)
 		return
 	end
 	courseplay:setEngineState(self, true);
-
+	
 	if self.cp.orgRpm == nil then
 		self.cp.orgRpm = {}
 		self.cp.orgRpm[1] = self.motor.maxRpm
@@ -285,7 +285,6 @@ function courseplay:start(self)
 	self.checkSpeedLimit = false
 	self.cp.runOnceStartCourse = true;
 	self.drive = true;
-	self.cp.maxFieldSpeed = 0
 	self.cp.isRecording = false
 	self.cp.distanceCheck = false;
 
