@@ -13,9 +13,11 @@ function courseplay:turn(self, dt) --!!!
 	local moveForwards = true;
 	local updateWheels = true;
 	local turnOutTimer = 1500
-	local frontMarker = Utils.getNoNil(self.cp.aiFrontMarker,-3)
-	local backMarker = Utils.getNoNil(self.cp.backMarkerOffset, 0)
-	if self.cp.noStopOnEdge then 
+	--local frontMarker = Utils.getNoNil(self.cp.backMarkerOffset, -3)
+	--local backMarker = Utils.getNoNil(self.cp.aiFrontMarker,0)
+	local frontMarker = Utils.getNoNil(self.cp.aiFrontMarker, -3)
+	local backMarker = Utils.getNoNil(self.cp.backMarkerOffset,0)
+	if self.cp.noStopOnEdge then
 		turnOutTimer = 0
 	end
 	self.cp.turnTimer = self.cp.turnTimer - dt;
@@ -26,7 +28,7 @@ function courseplay:turn(self, dt) --!!!
 
 		-- TURN STAGES 2 - 6
 		if self.cp.turnStage > 1 then
-			local x,y,z = getWorldTranslation(self.rootNode);
+			local x,y,z = getWorldTranslation(self.cp.DirectionNode);
 			local dirX, dirZ = self.aiTractorDirectionX, self.aiTractorDirectionZ;
 			local myDirX, myDirY, myDirZ = localDirectionToWorld(self.cp.DirectionNode, 0, 0, 1);
 
@@ -94,7 +96,7 @@ function courseplay:turn(self, dt) --!!!
 
 			-- TURN STAGE 5
 			elseif self.cp.turnStage == 5 then
-				local backX, backY, backZ = localToWorld(self.rootNode,0,0,frontMarker);
+				local backX, backY, backZ = localToWorld(self.cp.DirectionNode,0,0,frontMarker);
 				local dx, dz = backX-newTargetX, backZ-newTargetZ;
 				local dot = dx*dirX + dz*dirZ;
 				local moveback = 0
@@ -105,9 +107,9 @@ function courseplay:turn(self, dt) --!!!
 				end
 				if -dot < moveback  then
 					self.cp.turnStage = 0;
-					local _,_,z1 = worldToLocal(self.rootNode, self.Waypoints[self.recordnumber+1].cx, backY, self.Waypoints[self.recordnumber+1].cz);
-					local _,_,z2 = worldToLocal(self.rootNode, self.Waypoints[self.recordnumber+2].cx, backY, self.Waypoints[self.recordnumber+2].cz);
-					local _,_,z3 = worldToLocal(self.rootNode, self.Waypoints[self.recordnumber+3].cx, backY, self.Waypoints[self.recordnumber+3].cz);
+					local _,_,z1 = worldToLocal(self.cp.DirectionNode, self.Waypoints[self.recordnumber+1].cx, backY, self.Waypoints[self.recordnumber+1].cz);
+					local _,_,z2 = worldToLocal(self.cp.DirectionNode, self.Waypoints[self.recordnumber+2].cx, backY, self.Waypoints[self.recordnumber+2].cz);
+					local _,_,z3 = worldToLocal(self.cp.DirectionNode, self.Waypoints[self.recordnumber+3].cx, backY, self.Waypoints[self.recordnumber+3].cz);
 					if self.cp.isCombine then
 						if z2 > 6 then
 							courseplay:setRecordNumber(self, self.recordnumber + 2);
@@ -198,7 +200,7 @@ function courseplay:turn(self, dt) --!!!
 	-- TURN STAGE 0
 	else
 		local offset = Utils.getNoNil(self.cp.totalOffsetX, 0)
-		local x,y,z = localToWorld(self.rootNode, offset, 0, backMarker)
+		local x,y,z = localToWorld(self.cp.DirectionNode, offset, 0, backMarker)
 		local dist = courseplay:distance(self.Waypoints[self.recordnumber].cx, self.Waypoints[self.recordnumber].cz, x, z)
 		if backMarker <= 0 then
 			if  dist < 0.5 then
@@ -210,7 +212,7 @@ function courseplay:turn(self, dt) --!!!
 				self.cp.turnStage = 1;
 			end
 		else
-			if dist < 0.5 then
+			if dist < 0.5 and self.cp.turnStage ~= -1 then
 				self.cp.turnStage = -1
 				courseplay:lowerImplements(self, false, true)
 			end
@@ -221,11 +223,11 @@ function courseplay:turn(self, dt) --!!!
 				updateWheels = false;
 				self.cp.turnStage = 1;
 			end
-		end		
+		end
 		x,y,z = localToWorld(self.cp.DirectionNode, 0, 0, 1)
 		self.aiTractorTargetX, self.aiTractorTargetZ = x,z
 		
-		x,y,z = getWorldTranslation(self.rootNode);
+		x,y,z = getWorldTranslation(self.cp.DirectionNode);
 		local dirX, dirZ = self.aiTractorDirectionX, self.aiTractorDirectionZ;
 		local targetX, targetZ = self.aiTractorTargetX, self.aiTractorTargetZ;
 		local dx, dz = x-targetX, z-targetZ;
@@ -271,7 +273,7 @@ function courseplay:turn(self, dt) --!!!
 			end
  			courseplay:driveInMRDirection(self, lx,lz,moveForwards,dt,allowedToDrive)
 		else
-			AIVehicleUtil.driveInDirection(self, dt, 25, 0.5, 0.5, 20, true, moveForwards, lx, lz, 3, 0.9);
+			AIVehicleUtil.driveInDirection(self, dt, 25, 1, 0.5, 20, true, moveForwards, lx, lz, refSpeed, 1);
 		end
 		courseplay:setTrafficCollision(self, lx, lz, true)
 	end;
@@ -284,7 +286,9 @@ end
 
 function courseplay:lowerImplements(self, moveDown, workToolonOff)
 	--moveDown true= lower,  false = raise , workToolonOff true = switch on worktool,  false = switch off worktool
-	if moveDown == nil then moveDown = false; end;
+	if moveDown == nil then 
+		moveDown = false; 
+	end;
 
 	local state  = 1;
 	if moveDown then
@@ -296,22 +300,28 @@ function courseplay:lowerImplements(self, moveDown, workToolonOff)
 					--courseplay:handleSpecialTools(self,workTool,unfold,lower,turnOn,allowedToDrive,cover,unload)
 		specialTool = courseplay:handleSpecialTools(self,workTool,true,moveDown,workToolonOff,nil,nil,nil);
 	end;
-
 	if not specialTool then
-		if self.cp.isCombine or self.cp.isChopper then
+		if (self.cp.isCombine or self.cp.isChopper) and not self.cp.hasSpecializationFruitPreparer  then
 			for cutter, implement in pairs(self.attachedCutters) do
 				if cutter:isLowered() ~= moveDown then
 					self:lowerImplementByJointIndex(implement.jointDescIndex, moveDown, true);
 				end;
 			end;
 		elseif self.setAIImplementsMoveDown ~= nil then
+			if self:isLowered() == moveDown then 	--TODO (Tom) temp solution for potatoe and sugar beet harvesters 
+				return								--still not nice because on every turn we have a startup event while lowering
+			end
 			self:setAIImplementsMoveDown(moveDown,true);
 		elseif self.setFoldState ~= nil then
 			self:setFoldState(state, true);
 		end;
 		if workToolonOff then
 			for _,workTool in pairs(self.tippers) do
-				if workTool.setIsTurnedOn ~= nil and not courseplay:isFolding(workTool) and not workTool.needsLowering and workTool ~= self then
+				local needsLowering = false
+				if workTool.attacherJoint ~= nil then
+					needsLowering = workTool.attacherJoint.needsLowering
+				end
+				if workTool.setIsTurnedOn ~= nil and not courseplay:isFolding(workTool) and not needsLowering and workTool ~= self then
 					workTool:setIsTurnedOn(moveDown, false);
 				end;
 			end;

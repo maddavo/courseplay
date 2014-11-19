@@ -1,8 +1,8 @@
-function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, lx , lz )
+function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, lx , lz, refSpeed )
 	local workTool --= self.tippers[1] -- to do, quick, dirty and unsafe
 	local activeTipper = nil
 	local specialTool = false
-
+	local forceSpeedLimit = refSpeed 
 	--[[
 	if self.attachedCutters ~= nil then
 		for cutter, implement in pairs(self.attachedCutters) do
@@ -52,7 +52,17 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 		end
 
 		local isFolding, isFolded, isUnfolded = courseplay:isFolding(workTool);
-
+		local needsLowering = false
+		
+		if workTool.attacherJoint ~= nil then
+			needsLowering = workTool.attacherJoint.needsLowering
+		end
+		
+		--speedlimits
+		if workTool.doCheckSpeedLimit and workTool:doCheckSpeedLimit() then
+			forceSpeedLimit = math.min(forceSpeedLimit, workTool.speedLimit)
+		end
+		
 		-- stop while folding
 		if (isFolding or selfIsFolding) and self.cp.turnStage == 0 then
 			allowedToDrive = courseplay:brakeToStop(self);
@@ -209,7 +219,7 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 
 							if not isFolding and isUnfolded and not waitForSpecialTool then --TODO: where does "waitForSpecialTool" come from? what does it do?
 								--lower
-								if workTool.needsLowering and workTool.aiNeedsLowering then
+								if needsLowering and workTool.aiNeedsLowering then
 									self:setAIImplementsMoveDown(true);
 									courseplay:debug(string.format('%s: lower order', nameNum(workTool)), 17);
 								end;
@@ -249,7 +259,7 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 							end;
 
 							--raise
-							if workTool.needsLowering and workTool.aiNeedsLowering and self.cp.turnStage == 0 then
+							if needsLowering and workTool.aiNeedsLowering and self.cp.turnStage == 0 then
 								self:setAIImplementsMoveDown(false);
 								courseplay:debug(string.format('%s: raise order', nameNum(workTool)), 17);
 							end;
@@ -286,7 +296,7 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 							triggerId = trigger.specialTriggerId
 						end
 						local trigger_x, trigger_y, trigger_z = getWorldTranslation(triggerId);
-						local ctx, cty, ctz = getWorldTranslation(self.rootNode);
+						local ctx, cty, ctz = getWorldTranslation(self.cp.DirectionNode);
 
 						-- Start reversion value is to check if we have started to reverse
 						-- This is used in case we already registered a tipTrigger but changed the direction and might not be in that tipTrigger when unloading. (Bug Fix)
@@ -538,5 +548,5 @@ function courseplay:handle_mode6(self, allowedToDrive, workSpeed, fillLevelPct, 
 	if hasFinishedWork then
 		isFinishingWork = true
 	end
-	return allowedToDrive, workArea, workSpeed, activeTipper ,isFinishingWork
+	return allowedToDrive, workArea, workSpeed, activeTipper ,isFinishingWork,forceSpeedLimit
 end

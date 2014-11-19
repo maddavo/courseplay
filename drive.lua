@@ -8,10 +8,19 @@ function courseplay:drive(self, dt)
 		return;
 	end;
 	
-	local refSpeed = 0
-	local line = 0
+	-- debug for workAreas
+	if courseplay.debugChannels[6] then
+		local tx1, ty1, tz1 = localToWorld(self.cp.DirectionNode,3,1,self.cp.aiFrontMarker)
+		local tx2, ty2, tz2 = localToWorld(self.cp.DirectionNode,3,1,self.cp.backMarkerOffset)
+		local nx, ny, nz = localDirectionToWorld(self.cp.DirectionNode, -1, 0, 0)
+		local distance = 6
+		drawDebugLine(tx1, ty1, tz1, 1, 0, 0, tx1+(nx*distance), ty1+(ny*distance), tz1+(nz*distance), 1, 0, 0) 
+		drawDebugLine(tx2, ty2, tz2, 1, 0, 0, tx2+(nx*distance), ty2+(ny*distance), tz2+(nz*distance), 1, 0, 0) 
+	end 
+	
+	local refSpeed = math.huge
 	local cx,cy,cz = 0,0,0
-	-- may i drive or should i hold position for some reason?
+	-- may I drive or should I hold position for some reason?
 	local allowedToDrive = true
 
 	-- TIPPER FILL LEVELS (get once for all following functions)
@@ -30,7 +39,6 @@ function courseplay:drive(self, dt)
 	if self.cp.mode == 7 then
 		local continue;
 		continue, cx, cy, cz, refSpeed, allowedToDrive = courseplay:handleMode7(self, cx, cy, cz, refSpeed, allowedToDrive);
-		line = 32
 		if not continue then
 			return;
 		end;
@@ -44,12 +52,11 @@ function courseplay:drive(self, dt)
 
 	-- Turn on sound / control lights
 	if not self.isControlled then
-		--setVisibility(self.aiMotorSound, true); --TODO (Jakob): still needed in FS13 and FS15(Tom)?
 		self:setLightsVisibility(courseplay.lightsNeeded);
 	end;
 
 	-- current position
-	local ctx, cty, ctz = getWorldTranslation(self.rootNode);
+	local ctx, cty, ctz = getWorldTranslation(self.cp.DirectionNode);
 
 	if self.recordnumber > self.maxnumber then
 		courseplay:debug(string.format("drive %d: %s: self.recordnumber (%s) > self.maxnumber (%s)", debug.getinfo(1).currentline, nameNum(self), tostring(self.recordnumber), tostring(self.maxnumber)), 12); --this should never happen
@@ -374,14 +381,14 @@ function courseplay:drive(self, dt)
 	local isFinishingWork = false;
 	-- MODE 4
 	if self.cp.mode == 4 and self.cp.startWork ~= nil and self.cp.stopWork ~= nil and self.cp.tipperAttached then
-		allowedToDrive, workArea, workSpeed, isFinishingWork = courseplay:handle_mode4(self, allowedToDrive, workSpeed, self.cp.tipperFillLevelPct);
+		allowedToDrive, workArea, workSpeed, isFinishingWork, refSpeed = courseplay:handle_mode4(self, allowedToDrive, workSpeed, self.cp.tipperFillLevelPct, refSpeed);
 		if not workArea and self.cp.tipperFillLevelPct < self.cp.refillUntilPct then
 			courseplay:doTriggerRaycasts(self, 'specialTrigger', 'fwd', true, tx, ty, tz, nx, ny, nz);
 		end;
 
 	-- MODE 6
 	elseif self.cp.mode == 6 and self.cp.startWork ~= nil and self.cp.stopWork ~= nil then
-		allowedToDrive, workArea, workSpeed, activeTipper, isFinishingWork = courseplay:handle_mode6(self, allowedToDrive, workSpeed, self.cp.tipperFillLevelPct, lx, lz);
+		allowedToDrive, workArea, workSpeed, activeTipper, isFinishingWork,refSpeed = courseplay:handle_mode6(self, allowedToDrive, workSpeed, self.cp.tipperFillLevelPct, lx, lz,refSpeed);
 
 		if not workArea and self.cp.currentTipTrigger == nil and self.cp.tipperFillLevel and self.cp.tipperFillLevel > 0 and self.capacity == nil and self.cp.tipRefOffset ~= nil and not self.Waypoints[self.recordnumber].rev then
 			courseplay:doTriggerRaycasts(self, 'tipTrigger', 'fwd', true, tx, ty, tz, nx, ny, nz);
@@ -430,8 +437,8 @@ function courseplay:drive(self, dt)
 	
 	if WpUnload then
 		local i = self.cp.shovelEmptyPoint
-		local x,y,z = getWorldTranslation(self.rootNode)
-		local _,_,ez = worldToLocal(self.rootNode, self.Waypoints[i].cx , y , self.Waypoints[i].cz)
+		local x,y,z = getWorldTranslation(self.cp.DirectionNode)
+		local _,_,ez = worldToLocal(self.cp.DirectionNode, self.Waypoints[i].cx , y , self.Waypoints[i].cz)
 		if  ez < 0 then
 			allowedToDrive = false
 		end
@@ -443,8 +450,8 @@ function courseplay:drive(self, dt)
 	end
 	if WpLoadEnd then
 		local i = self.cp.shovelFillEndPoint
-		local x,y,z = getWorldTranslation(self.rootNode)
-		local _,_,ez = worldToLocal(self.rootNode, self.Waypoints[i].cx , y , self.Waypoints[i].cz)
+		local x,y,z = getWorldTranslation(self.cp.DirectionNode)
+		local _,_,ez = worldToLocal(self.cp.DirectionNode, self.Waypoints[i].cx , y , self.Waypoints[i].cz)
 		if  ez < 0.2 then
 			if self.cp.tipperFillLevelPct == 0 then
 				allowedToDrive = false
@@ -494,30 +501,24 @@ function courseplay:drive(self, dt)
 		(not isAtEnd and (self.Waypoints[self.recordnumber].rev or self.Waypoints[self.recordnumber + 1].rev or self.Waypoints[self.recordnumber + 2].rev)) or
 		(workSpeed ~= nil and workSpeed == 0.5) 
 	then
-		refSpeed = self.cp.speeds.turn;
-		line = 497
+		refSpeed = math.min(self.cp.speeds.turn,refSpeed);
 	elseif ((self.cp.mode == 2 or self.cp.mode == 3) and isAtStart) or (workSpeed ~= nil and workSpeed == 1) then
-		refSpeed = self.cp.speeds.field;
-		line = 500
+		refSpeed = math.min(self.cp.speeds.field,refSpeed);
 	else
 		local mode7onCourse = true
 		if self.cp.mode ~= 7 then
 			refSpeed = self.cp.speeds.street;
-			line = 506
 		elseif self.cp.modeState == 5 then
 			mode7onCourse = false
 		end
 		if self.cp.speeds.useRecordingSpeed and self.Waypoints[self.recordnumber].speed ~= nil and mode7onCourse then
 			refSpeed = Utils.clamp(refSpeed, self.cp.speeds.crawl, self.Waypoints[self.recordnumber].speed);
-			line = 511
 		end;
 	end;
 	
 	
 	if self.cp.collidingVehicleId ~= nil then
 		refSpeed = courseplay:regulateTrafficSpeed(self, refSpeed, allowedToDrive);
-		line = 518
-		
 	end
 	
 	if self.cp.currentTipTrigger ~= nil then
@@ -528,7 +529,6 @@ function courseplay:drive(self, dt)
 		end;
 	elseif self.cp.isInFilltrigger then
 		refSpeed = self.cp.speeds.turn;
-		line = 530
 		if self.lastSpeedReal > self.cp.speeds.turn then
 			courseplay:brakeToStop(self);
 		end;
@@ -545,7 +545,6 @@ function courseplay:drive(self, dt)
 	if self.Waypoints[self.recordnumber].rev then
 		lx,lz,fwd = courseplay:goReverse(self,lx,lz)
 		refSpeed = Utils.getNoNil(self.cp.speeds.unload, self.cp.speeds.crawl)
-		line = 547
 	else
 		fwd = true
 	end
@@ -573,11 +572,12 @@ function courseplay:drive(self, dt)
 		lx = lx * -1
 	elseif self.cp.isReverseBackToPoint then
 		if self.cp.reverseBackToPoint then
-			local _, _, zDis = worldToLocal(self.rootNode, self.cp.reverseBackToPoint.x, self.cp.reverseBackToPoint.y, self.cp.reverseBackToPoint.z);
+			local _, _, zDis = worldToLocal(self.cp.DirectionNode, self.cp.reverseBackToPoint.x, self.cp.reverseBackToPoint.y, self.cp.reverseBackToPoint.z);
 			if zDis < 0 then
 				fwd = false;
 				lx = 0;
 				lz = 1;
+				refSpeed = self.cp.speeds.crawl
 			else
 				self.cp.reverseBackToPoint = nil;
 			end;
@@ -585,13 +585,9 @@ function courseplay:drive(self, dt)
 			self.cp.isReverseBackToPoint = false;
 		end;
 	end
-	renderText(0.5,0.8,0.019,"refSpeed: "..tostring(refSpeed).." set in line: "..line)
-	if self.isRealistic then
-		courseplay:setMRSpeed(self, refSpeed, 3, allowedToDrive, workArea);
-	else
-		
-		courseplay:setSpeed(self, refSpeed)
-	end
+	
+	courseplay:setSpeed(self, refSpeed)
+
 
 	-- DISTANCE TO CHANGE WAYPOINT
 	if self.recordnumber == 1 or self.recordnumber == self.maxnumber - 1 or self.Waypoints[self.recordnumber].turn then
@@ -684,7 +680,9 @@ function courseplay:drive(self, dt)
 			if self.isRealistic then 
 				courseplay:driveInMRDirection(self, lx,lz,fwd, dt,allowedToDrive);
 			else
-				AIVehicleUtil.driveInDirection(self, dt, self.cp.steeringAngle, 0.5, 0.5, 8, true, fwd, lx, lz, 3, 0.5);
+			--self,dt,steeringAngleLimit,acceleration,slowAcceleration,slowAngleLimit,allowedToDrive,moveForwards,lx,lz,maxSpeed,slowDownFactor,angle
+				--AIVehicleUtil.driveInDirection(dt,25,1,0.5,20,true,true,-0.028702223698223,0.99958800630799,22,1,nil)
+				AIVehicleUtil.driveInDirection(self, dt, self.cp.steeringAngle, 1, 0.5, 20, true, fwd, lx, lz, refSpeed, 1);
 			end
 			if not isBypassing then
 				courseplay:setTrafficCollision(self, lx, lz, workArea)
@@ -809,12 +807,12 @@ end
 
 function courseplay:setSpeed(vehicle, refSpeed)
 	local newSpeed = math.max(refSpeed,3)	
-	if vehicle.cruiseControl.state == 0 then
+	if vehicle.cruiseControl.state == Drivable.CRUISECONTROL_STATE_OFF then
 		vehicle:setCruiseControlState(Drivable.CRUISECONTROL_STATE_ACTIVE)
 	end 
-	vehicle.cruiseControl.minSpeed = newSpeed   --TODO(Tom) thats rape, make it nice and clear when you know how
+	vehicle:setCruiseControlMaxSpeed(newSpeed) 
 	
-		-- slipping notification
+	-- slipping notification
 	if vehicle.lastSpeedReal*3600 < 0.5 and not vehicle.cp.inTraffic and not vehicle.Waypoints[vehicle.recordnumber].wait then
 		if vehicle.cp.timers.slippingWheels == nil or vehicle.cp.timers.slippingWheels == 0 then
 			courseplay:setCustomTimer(vehicle, 'slippingWheels', 5);
@@ -858,7 +856,6 @@ function courseplay:openCloseCover(vehicle, dt, showCover, isAtTipTrigger)
 end;
 
 function courseplay:refillSprayer(vehicle, fillLevelPct, driveOn, allowedToDrive, lx, lz, dt)
-	-- for i,activeTool in pairs(vehicle.tippers) do --TODO (Jakob): delete
 	for i=1, vehicle.cp.numWorkTools do
 		local activeTool = vehicle.tippers[i];
 		local isSpecialSprayer = false
@@ -978,7 +975,7 @@ function courseplay:regulateTrafficSpeed(vehicle,refSpeed,allowedToDrive)
 			courseplay:debug(nameNum(vehicle)..": regulateTrafficSpeed:	 "..tostring(name),3)
 		end
 		local x, y, z = getWorldTranslation(vehicle.cp.collidingVehicleId)
-		local x1, y1, z1 = worldToLocal(vehicle.rootNode, x, y, z)
+		local x1, y1, z1 = worldToLocal(vehicle.cp.DirectionNode, x, y, z)
 		if z1 < 0 or abs(x1) > 5 and not vehicle.cp.collidingObjects.all[vehicle.cp.collidingVehicleId] then -- vehicle behind tractor
 			vehicleBehind = true
 		end
@@ -996,7 +993,7 @@ function courseplay:regulateTrafficSpeed(vehicle,refSpeed,allowedToDrive)
 				if (vehicle.lastSpeed*3600) - (collisionVehicle.lastSpeedReal*3600) > 15 or z1 < 3 then
 					vehicle.cp.TrafficBrake = true
 				else
-					return min(collisionVehicle.lastSpeedReal,refSpeed)
+					return min(collisionVehicle.lastSpeedReal*3600,refSpeed)
 				end
 			end
 		end
@@ -1041,39 +1038,6 @@ function courseplay:driveInMRDirection(vehicle, lx,lz,fwd,dt,allowedToDrive)
 	AIVehicleUtil.mrDriveInDirection(vehicle, dt, 1, allowedToDrive, fwd, lx, lz, 3, true, true)
 end
 
-
-function courseplay:setMRSpeed(vehicle, refSpeed, sl, allowedToDrive, workArea)
-	local currentSpeed = vehicle.lastSpeedReal
-	local deltaMinus = currentSpeed*3600 - refSpeed*3600
-	local deltaPlus = refSpeed*3600 - currentSpeed*3600
-
-	local tolerance = 5;
-	if vehicle.cp.currentTipTrigger and vehicle.cp.currentTipTrigger.bunkerSilo then
-		tolerance = 1;
-	end;
-	if deltaMinus > tolerance then
-		vehicle.cp.speedBrake = true
-	else 
-		vehicle.cp.speedBrake = false
-	end
-	
-	vehicle.motor.speedLevel = sl
-	vehicle.motor.realSpeedLevelsAI[vehicle.motor.speedLevel] = refSpeed*3600
-
-	-- slipping notification
-	if vehicle.realDisplaySlipPercent > 90 then
-		courseplay:setGlobalInfoText(vehicle, 'SLIPPING_2');
-	elseif vehicle.realDisplaySlipPercent > 75 then
-		courseplay:setGlobalInfoText(vehicle, 'SLIPPING_1');
-	end;
-
-	-- setting AWD if necessary
-	if (workArea or vehicle.realDisplaySlipPercent > 25 or vehicle.cp.BGASelectedSection) and vehicle.realAWDModeOn == false then
-		vehicle:realSetAwdActive(true);
-	elseif not workArea and vehicle.realDisplaySlipPercent < 1 and not vehicle.cp.BGASelectedSection and vehicle.realAWDModeOn == true then
-		vehicle:realSetAwdActive(false);
-	end
-end;
 
 function courseplay:getIsVehicleOffsetValid(vehicle)
 	local valid = vehicle.cp.totalOffsetX ~= nil and vehicle.cp.toolOffsetZ ~= nil and (vehicle.cp.totalOffsetX ~= 0 or vehicle.cp.toolOffsetZ ~= 0);
@@ -1269,7 +1233,7 @@ function courseplay:setReverseBackDistance(vehicle, metersBack)
 	if not vehicle or not metersBack then return; end;
 
 	if not vehicle.cp.reverseBackToPoint then
-		local x, y, z = localToWorld(vehicle.rootNode, 0, 0, -metersBack);
+		local x, y, z = localToWorld(vehicle.cp.DirectionNode, 0, 0, -metersBack);
 		vehicle.cp.reverseBackToPoint = {};
 		vehicle.cp.reverseBackToPoint.x = x;
 		vehicle.cp.reverseBackToPoint.y = y;
