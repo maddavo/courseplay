@@ -29,7 +29,7 @@ function courseplay:handle_mode9(vehicle, fillLevelPct, allowedToDrive, dt)
 	--state 7: wait for Trailer 10 before EmptyPoint
 
 	if vehicle.cp.tipperCapacity == nil or vehicle.cp.tipperCapacity == 0 then --NOTE: query here instead of getCanUseAiMode() as tipperCapacity doesn't exist until drive() has been run
-		vehicle.cp.infoText = courseplay:loc('COURSEPLAY_SHOVEL_NOT_FOUND');
+		courseplay:setInfoText(vehicle, courseplay:loc('COURSEPLAY_SHOVEL_NOT_FOUND'));
 		return false;
 	end;
 
@@ -74,8 +74,8 @@ function courseplay:handle_mode9(vehicle, fillLevelPct, allowedToDrive, dt)
 		if fillLevelPct == 100 or vehicle.cp.isLoaded then
 			if not vehicle.cp.isLoaded then
 				for i=vehicle.recordnumber, vehicle.maxnumber do
-					local _,ty,_ = getWorldTranslation(vehicle.rootNode);
-					local _,_,z = worldToLocal(vehicle.rootNode, vehicle.Waypoints[i].cx , ty , vehicle.Waypoints[i].cz);
+					local _,ty,_ = getWorldTranslation(vehicle.cp.DirectionNode);
+					local _,_,z = worldToLocal(vehicle.cp.DirectionNode, vehicle.Waypoints[i].cx , ty , vehicle.Waypoints[i].cz);
 					if z < -3 and vehicle.Waypoints[i].rev  then
 						--print("z taken:  "..tostring(z));
 						courseplay:setRecordNumber(vehicle, i + 1);
@@ -105,18 +105,18 @@ function courseplay:handle_mode9(vehicle, fillLevelPct, allowedToDrive, dt)
 	-- STATE 7: WAIT FOR TRAILER 10m BEFORE EMPTYING POINT
 	elseif vehicle.cp.shovelState == 7 then
 		local p = vehicle.cp.shovelEmptyPoint;
-		local _,ry,_ = getWorldTranslation(vehicle.rootNode);
-		local nx, nz = AIVehicleUtil.getDriveDirection(vehicle.rootNode, vehicle.Waypoints[p].cx, ry, vehicle.Waypoints[p].cz);
+		local _,ry,_ = getWorldTranslation(vehicle.cp.DirectionNode);
+		local nx, nz = AIVehicleUtil.getDriveDirection(vehicle.cp.DirectionNode, vehicle.Waypoints[p].cx, ry, vehicle.Waypoints[p].cz);
 		local lx,ly,lz = localDirectionToWorld(vehicle.cp.DirectionNode, nx, 0, nz);
 		for i=6,12 do
-			local x,y,z = localToWorld(vehicle.rootNode,0,4,i);
+			local x,y,z = localToWorld(vehicle.cp.DirectionNode,0,4,i);
 			raycastAll(x, y, z, lx, -1, lz, "findTrailerRaycastCallback", 10, vehicle.cp.shovel);
 			if courseplay.debugChannels[10] then
 				drawDebugLine(x, y, z, 1, 0, 0, x+lx*10, y-10, z+lz*10, 1, 0, 0);
 			end;
 		end;
 
-		local ox, _, oz = worldToLocal(vehicle.rootNode, vehicle.Waypoints[p].cx, ry, vehicle.Waypoints[p].cz);
+		local ox, _, oz = worldToLocal(vehicle.cp.DirectionNode, vehicle.Waypoints[p].cx, ry, vehicle.Waypoints[p].cz);
 		local distance = Utils.vector2Length(ox, oz);
 		if vehicle.cp.shovel.trailerFound == nil and vehicle.cp.shovel.objectFound == nil and distance < 10 then
 			allowedToDrive = false;
@@ -287,7 +287,11 @@ function courseplay:checkAndSetMovingToolsPosition(vehicle, movingTools, seconda
 
 			-- DIRTY FLAGS (movingTool)
 			if changed then
-				Cylindered.setDirty(mtMainObject, mt);
+				if vehicle.cp.attachedFrontLoader ~= nil then
+					Cylindered.setDirty(vehicle.cp.attachedFrontLoader, mt);
+				else
+					Cylindered.setDirty(mtMainObject, mt);
+				end	
 				vehicle:raiseDirtyFlags(mtMainObject.cylinderedDirtyFlag);
 			end;
 		end;
@@ -327,6 +331,7 @@ function courseplay:getMovingTools(vehicle)
 		vehicle.cp.shovel = vehicle.attachedImplements[shovel].object;
 	elseif frontLoader ~= 0 then
 		local object = vehicle.attachedImplements[frontLoader].object;
+		vehicle.cp.attachedFrontLoader = object
 		primaryMovingTools = object.movingTools;
 		if object.attachedImplements[1] ~= nil then
 			secondaryMovingTools = object.attachedImplements[1].object.movingTools;

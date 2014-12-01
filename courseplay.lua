@@ -4,7 +4,7 @@ Specialization for Courseplay
 
 @author  	Jakob Tischler / Thomas Gärtner / horoman
 @website:	http://courseplay.github.io/courseplay/
-@version:	v3.41
+@version:	v4.00 beta
 @changelog:	http://courseplay.github.io/courseplay/en/changelog/index.html
 ]]
 
@@ -19,18 +19,9 @@ courseplay = {
 	courses = {};
 	settings = {};
 	hud = {};
-	button = {};
+	buttons = {};
 	fields = {};
 	generation = {};
-	thirdParty = {
-		EifokLiquidManure = {
-			dockingStations = {};
-			KotteContainers = {};
-			KotteZubringers = {};
-			hoses = {};
-		};
-	};
-	pathfinding = {};
 };
 
 if courseplay.path ~= nil then
@@ -41,12 +32,17 @@ end;
 
 courseplay.sonOfaBangSonOfaBoom = {
 	['44d143f3e847254a55835a8298ba4e21'] = true;
+	['6fbb6a98a4054b1d603bd8c591d572af'] = true;
 	['87a96c3bb39fa285d7ed2fb5beaffc16'] = true;
 	['d4043d2f9265e18c794be4159faaef5c'] = true;
 };
 courseplay.isDeveloper = courseplay.sonOfaBangSonOfaBoom[getMD5(g_settingsNickname)];
 if courseplay.isDeveloper then
 	print('Special dev magic for Courseplay developer unlocked. You go, girl!');
+else
+	--print('No cookies for you! (please wait until we have some limited form of a working version...)');
+	--courseplay.houstonWeGotAProblem = true;
+	--return;
 end;
 
 -- working tractors saved in this
@@ -117,9 +113,6 @@ function courseplay:initialize()
 		'mode7', 
 		'mode8', 
 		'mode9', 
-		'pathfinding',
-		'pathfinding_helpers',
-		'pathfinding_PathFinderOnGrids',
 		'recording', 
 		'reverse',
 		'settings', 
@@ -159,57 +152,68 @@ function courseplay:initialize()
 
 	if courseplay.isDevVersion then
 		local devWarning = '';
-		devWarning = devWarning .. '\t' .. ('*'):rep(45) .. ' WARNING ' .. ('*'):rep(45) .. '\n';
-		devWarning = devWarning .. '\tYou\'re using a development version of Courseplay, which may and will contain errors, bugs,\n';
-		devWarning = devWarning .. '\tmistakes and unfinished code. Chances are your computer will explode when using it. Twice.\n';
-		devWarning = devWarning .. '\tIf you have no idea what "beta", "alpha", or "developer" means and entails, remove this version\n';
-		devWarning = devWarning .. '\tof Courseplay immediately. The Courseplay team will not take any responsibility for crop destroyed,\n';
-		devWarning = devWarning .. '\tsavegames deleted or baby pandas killed.\n';
-		devWarning = devWarning .. '\t' .. ('*'):rep(99);
+		devWarning = devWarning .. '\t' .. ('*'):rep(47) .. ' WARNING ' .. ('*'):rep(47) .. '\n';
+		devWarning = devWarning .. '\t* You are using a development version of Courseplay, which may and will contain errors, bugs,         *\n';
+		devWarning = devWarning .. '\t* mistakes and unfinished code. Chances are your computer will explode when using it. Twice.          *\n';
+		devWarning = devWarning .. '\t* If you have no idea what "beta", "alpha", or "developer" means and entails, remove this version     *\n';
+		devWarning = devWarning .. '\t* of Courseplay immediately. The Courseplay team will not take any responsibility for crop destroyed, *\n';
+		devWarning = devWarning .. '\t* savegames deleted or baby pandas killed.                                                            *\n';
+		devWarning = devWarning .. '\t' .. ('*'):rep(103);
 		print(devWarning);
 	end;
 end;
 
 function courseplay:setGlobalData()
+	if courseplay.globalDataSet then
+		return;
+	end;
+
+	courseplay.savegameFolderPath = ('%ssavegame%d'):format(getUserProfileAppPath(), g_careerScreen.currentSavegame.savegameIndex);
+	courseplay.cpXmlFilePath = courseplay.savegameFolderPath .. '/courseplay.xml';
+	courseplay.cpFieldsXmlFilePath = courseplay.savegameFolderPath .. '/courseplayFields.xml';
+
+
+	-- CP MODES
+	courseplay.MODE_GRAIN_TRANSPORT = 1;
+	courseplay.MODE_COMBI = 2;
+	courseplay.MODE_OVERLOADER = 3;
+	courseplay.MODE_SEED_FERTILIZE = 4;
+	courseplay.MODE_TRANSPORT = 5;
+	courseplay.MODE_FIELDWORK = 6;
+	courseplay.MODE_COMBINE_SELF_UNLOADING = 7;
+	courseplay.MODE_LIQUIDMANURE_TRANSPORT = 8;
+	courseplay.MODE_SHOVEL_FILL_AND_EMPTY = 9;
+
+	------------------------------------------------------------
+
 	local customPosX, customPosY;
-	local customGitPosX, customGitPosY;
 	local fieldsAutomaticScan, fieldsDebugScan, fieldsDebugCustomLoad, fieldsCustomScanStep, fieldsOnlyScanOwnedFields = true, false, false, nil, true;
-	local wagesActive, wagesAmount = false, 666;
+	local wagesActive, wagesAmount = true, 1500;
 
-	local savegame = g_careerScreen.savegames[g_careerScreen.selectedIndex];
-	if savegame ~= nil then
-		local cpFilePath = savegame.savegameDirectory .. "/courseplay.xml";
-		if fileExists(cpFilePath) then
-			local cpFile = loadXMLFile("cpFile", cpFilePath);
-			local hudKey = "XML.courseplayHud";
-			if hasXMLProperty(cpFile, hudKey) then
-				customPosX = getXMLFloat(cpFile, hudKey .. "#posX");
-				customPosY = getXMLFloat(cpFile, hudKey .. "#posY");
-			end;
-
-			local gitKey = "XML.courseplayGlobalInfoText";
-			if hasXMLProperty(cpFile, gitKey) then
-				customGitPosX = getXMLFloat(cpFile, gitKey .. "#posX");
-				customGitPosY = getXMLFloat(cpFile, gitKey .. "#posY");
-			end;
-
-			local fieldsKey = 'XML.courseplayFields';
-			if hasXMLProperty(cpFile, fieldsKey) then
-				fieldsAutomaticScan   = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#automaticScan'), true);
-				fieldsOnlyScanOwnedFields = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#onlyScanOwnedFields'), true);
-				fieldsDebugScan       = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#debugScannedFields'), false);
-				fieldsDebugCustomLoad = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#debugCustomLoadedFields'), false);
-				fieldsCustomScanStep = getXMLInt(cpFile, fieldsKey .. '#scanStep');
-			end;
-
-			local wagesKey = 'XML.courseplayWages';
-			if hasXMLProperty(cpFile, wagesKey) then
-				wagesActive = Utils.getNoNil(getXMLBool(cpFile, wagesKey .. '#active'), wagesActive);
-				wagesAmount = Utils.getNoNil(getXMLInt(cpFile, wagesKey .. '#wagePerHour'), wagesAmount);
-			end;
-
-			delete(cpFile);
+	if courseplay.cpXmlFilePath and fileExists(courseplay.cpXmlFilePath) then
+		local cpFile = loadXMLFile('cpFile', courseplay.cpXmlFilePath);
+		local hudKey = 'XML.courseplayHud';
+		if hasXMLProperty(cpFile, hudKey) then
+			customPosX = getXMLFloat(cpFile, hudKey .. '#posX');
+			customPosY = getXMLFloat(cpFile, hudKey .. '#posY');
 		end;
+
+		local fieldsKey = 'XML.courseplayFields';
+		if hasXMLProperty(cpFile, fieldsKey) then
+			fieldsAutomaticScan   = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#automaticScan'), true);
+			fieldsOnlyScanOwnedFields = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#onlyScanOwnedFields'), true);
+			fieldsDebugScan       = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#debugScannedFields'), false);
+			fieldsDebugCustomLoad = Utils.getNoNil(getXMLBool(cpFile, fieldsKey .. '#debugCustomLoadedFields'), false);
+			fieldsCustomScanStep = getXMLInt(cpFile, fieldsKey .. '#scanStep');
+		end;
+
+		local wagesKey = 'XML.courseplayWages';
+		if hasXMLProperty(cpFile, wagesKey) then
+			wagesActive = Utils.getNoNil(getXMLBool(cpFile, wagesKey .. '#active'), wagesActive);
+			wagesAmount = Utils.getNoNil(getXMLInt(cpFile, wagesKey .. '#wagePerHour'), wagesAmount);
+		end;
+
+		delete(cpFile);
 	end;
 
 	courseplay.numAiModes = 9;
@@ -218,23 +222,22 @@ function courseplay:setGlobalData()
 	ch.infoBasePosY = Utils.getNoNil(customPosY, 0.002);
 	ch.infoBaseWidth = 0.512;
 	ch.infoBaseHeight = 0.512;
-	ch.linesPosY = {};
-	ch.linesBottomPosY = {};
-	ch.linesButtonPosY = {};
-	ch.numPages = 9;
-	ch.numLines = 6;
-	ch.lineHeight = 0.021;
-	ch.offset = 16/1920;  --0.006 (button width)
+	ch.indent = 16/1920 * 1.25; -- buttonWidth (16px) + 1/4 margin
+
+	-- COLORS NOTE:
+	-- Because Giants fucked up big time, overlay colors that don't use full values are displayed way brighter than they should.
+	-- Until Giants fixes this, we're gonna have to use fake color values that effectively produce our desired colors
 	ch.colors = {
 		white =         { 255/255, 255/255, 255/255, 1.00 };
 		whiteInactive = { 255/255, 255/255, 255/255, 0.75 };
 		whiteDisabled = { 255/255, 255/255, 255/255, 0.15 };
-		hover =         {  32/255, 168/255, 219/255, 1.00 };
-		activeGreen =   { 110/255, 235/255,  56/255, 1.00 };
-		activeRed =     { 206/255,  83/255,  77/255, 1.00 };
-		closeRed =      { 180/255,   0/255,   0/255, 1.00 };
-		warningRed =    { 240/255,  25/255,  25/255, 1.00 };
-		shadow =        {  35/255,  35/255,  35/255, 1.00 };
+		hover =         {   4/255,  98/255, 180/255, 1.00 }; -- IS FAKE COLOR! ORIG COLOR: {  32/255, 168/255, 219/255, 1.00 };
+		activeGreen =   {  43/255, 205/255,  10/255, 1.00 }; -- IS FAKE COLOR! ORIG COLOR: { 110/255, 235/255,  56/255, 1.00 };
+		activeRed =     { 153/255,  22/255,  19/255, 1.00 }; -- IS FAKE COLOR! ORIG COLOR: { 206/255,  83/255,  77/255, 1.00 };
+		closeRed =      { 116/255,   0/255,   0/255, 1.00 }; -- IS FAKE COLOR! ORIG COLOR: { 180/255,   0/255,   0/255, 1.00 };
+		warningRed =    { 222/255,   2/255,   3/255, 1.00 }; -- IS FAKE COLOR! ORIG COLOR: { 240/255,  25/255,  25/255, 1.00 };
+		shadow =        {   4/255,   4/255,   4/255, 1.00 }; -- IS FAKE COLOR! ORIG COLOR: {  35/255,  35/255,  35/255, 1.00 };
+		textDark =      {   1/255,   1/255,   1/255, 1.00 }; -- IS FAKE COLOR! ORIG COLOR: {  15/255,  15/255,  15/255, 1.00 };
 	};
 
 	ch.pagesPerMode = {
@@ -261,17 +264,33 @@ function courseplay:setGlobalData()
 
 	--print(string.format("\t\tposX=%f,posY=%f, visX1=%f,visX2=%f, visY1=%f,visY2=%f, visCenter=%f", courseplay.hud.infoBasePosX, courseplay.hud.infoBasePosY, courseplay.hud.visibleArea.x1, courseplay.hud.visibleArea.x2, courseplay.hud.visibleArea.y1, courseplay.hud.visibleArea.y2, courseplay.hud.infoBaseCenter));
 
+	-- lines and text
+	ch.linesPosY = {};
+	ch.linesButtonPosY = {};
+	ch.numPages = 9;
+	ch.numLines = 8;
+	ch.lineHeight = 0.021;
 	for l=1,courseplay.hud.numLines do
 		if l == 1 then
-			courseplay.hud.linesPosY[l] = courseplay.hud.infoBasePosY + 0.210;
-			courseplay.hud.linesBottomPosY[l] = courseplay.hud.infoBasePosY + 0.077;
+			courseplay.hud.linesPosY[l] = courseplay.hud.infoBasePosY + 0.215;
 		else
 			courseplay.hud.linesPosY[l] = courseplay.hud.linesPosY[1] - ((l-1) * courseplay.hud.lineHeight);
-			courseplay.hud.linesBottomPosY[l] = courseplay.hud.linesBottomPosY[1] - ((l-1) * courseplay.hud.lineHeight);
 		end;
-		courseplay.hud.linesButtonPosY[l] = courseplay.hud.linesPosY[l] + 0.0020; --0.0045
+		courseplay.hud.linesButtonPosY[l] = courseplay.hud.linesPosY[l] - 0.001;
 	end;
+	ch.fontSizes = {
+		seedUsageCalculator = 0.015;
+		hudTitle = 0.021;
+		contentTitle = 0.016;
+		contentValue = 0.014; 
+		bottomInfo = 0.015;
+		version = 0.01;
+		infoText = 0.015;
+		fieldScanTitle = 0.021;
+		fieldScanData = 0.018;
+	};
 
+	courseplay.hud.col1posX = courseplay.hud.infoBasePosX + 0.005;
 	courseplay.hud.col2posX = {
 		[0] = courseplay.hud.infoBasePosX + 0.122,
 		[1] = courseplay.hud.infoBasePosX + 0.142,
@@ -303,14 +322,123 @@ function courseplay:setGlobalData()
 		};
 	};
 	courseplay.hud.buttonPosX = {
-		[1] = courseplay.hud.infoBasePosX + 0.285;
-		[2] = courseplay.hud.infoBasePosX + 0.300;
+		[-1] = courseplay.hud.infoBasePosX + 0.255;
+		[0]  = courseplay.hud.infoBasePosX + 0.270;
+		[1]  = courseplay.hud.infoBasePosX + 0.285;
+		[2]  = courseplay.hud.infoBasePosX + 0.300;
 	};
+
+	ch.iconSpritePath = Utils.getFilename('img/iconSprite.png', courseplay.path);
+	ch.iconSpriteSize = {
+		x = 256;
+		y = 512;
+	};
+
+	ch.modeButtonsUVsPx = {
+		[1] = { 112, 72, 144,40 };
+		[2] = { 148, 72, 180,40 };
+		[3] = { 184, 72, 216,40 };
+		[4] = { 220, 72, 252,40 };
+		[5] = {   4,108,  36,76 };
+		[6] = {  40,108,  72,76 };
+		[7] = {  76,108, 108,76 };
+		[8] = { 112,108, 144,76 };
+		[9] = { 148,108, 180,76 };
+	};
+
+	ch.pageButtonsUVsPx = {
+		[0] = {   4,36,  36, 4 };
+		[1] = {  40,36,  72, 4 };
+		[2] = {  76,36, 108, 4 };
+		[3] = { 112,36, 144, 4 };
+		[4] = { 148,36, 180, 4 };
+		[5] = { 184,36, 216, 4 };
+		[6] = { 220,36, 252, 4 };
+		[7] = {   4,72,  36,40 };
+		[8] = {  40,72,  72,40 };
+		[9] = {  76,72, 108,40 };
+	};
+
+	courseplay.hud.buttonUVsPx = {
+		calculator       = {  76,288, 108,256 };
+		cancel           = {  40,288,  72,256 };
+		close            = { 148,216, 180,184 };
+		copy             = { 184,180, 216,148 };
+		courseLoadAppend = {   4,252,  36,220 };
+		courseAdd        = {  40,252,  72,220 };
+		eye              = { 148,180, 180,148 };
+		delete           = { 184,216, 216,184 };
+		folderNew        = { 220,216, 252,184 };
+		folderParentFrom = {  76,252, 108,220 };
+		folderParentTo   = { 112,252, 144,220 };
+		headlandDirCW    = {   4,324,  36,292 };
+		headlandDirCCW   = {  40,324,  72,292 };
+		headlandOrdBef   = { 112,288, 176,256 };
+		headlandOrdAft   = { 184,288, 248,256 };
+		generateCourse   = {  40, 72,  72, 40 };
+		navUp            = {  76,216, 108,184 };
+		navDown          = { 112,216, 144,184 };
+		navLeft          = {   4,216,  36,184 };
+		navRight         = {  40,216,  72,184 };
+		navPlus          = { 148,252, 180,220 };
+		navMinus         = { 184,252, 216,220 };
+		recordingCross   = {  76,180, 108,148 };
+		recordingDelete  = { 148,360, 180,328 };
+		recordingPause   = {  40,360,  72,328 };
+		recordingPlay    = { 220,324, 252,292 };
+		recordingReverse = { 112,360, 144,328 };
+		recordingStop    = {  76,360, 108,328 };
+		recordingTurn    = {   4,360,  36,328 };
+		recordingWait    = {  40,180,  72,148 };
+		refresh          = { 220,252, 252,220 };
+		save             = { 220,180, 252,148 };
+		search           = {   4,288,  36,256 };
+		shovelLoading    = {  76,324, 108,292 };
+		shovelUnloading  = { 112,324, 144,292 };
+		shovelPreUnload  = { 148,324, 180,292 };
+		shovelTransport  = { 184,324, 216,292 };
+	};
+
+	-- bottom info
+	ch.bottomInfo = {};
+	ch.bottomInfo.iconHeight = 24 / 1080;
+	ch.bottomInfo.iconWidth = ch.bottomInfo.iconHeight / g_screenAspectRatio;
+	ch.bottomInfo.textPosY = ch.infoBasePosY + 41 / 1080;
+	ch.bottomInfo.iconPosY = ch.bottomInfo.textPosY - 0.0059;
+	ch.bottomInfo.modeIconX = ch.col1posX;
+	ch.bottomInfo.modeTextX = ch.bottomInfo.modeIconX + ch.bottomInfo.iconWidth * 1.25;
+	ch.bottomInfo.waypointIconX = ch.visibleArea.x2 - 0.120;
+	ch.bottomInfo.waypointTextX = ch.bottomInfo.waypointIconX + ch.bottomInfo.iconWidth * 1.25;
+	ch.bottomInfo.waitPointsIconX = ch.visibleArea.x2 - 0.06;
+	ch.bottomInfo.waitPointsTextX = ch.bottomInfo.waitPointsIconX + ch.bottomInfo.iconWidth * 1.25;
+	ch.bottomInfo.crossingPointsIconX = ch.visibleArea.x2 - 0.034;
+	ch.bottomInfo.crossingPointsTextX = ch.bottomInfo.crossingPointsIconX + ch.bottomInfo.iconWidth * 1.25;
+	ch.bottomInfo.modeUVsPx = {
+		[1] = { 184,108, 216, 76 };
+		[2] = { 220,108, 252, 76 };
+		[3] = {   4,144,  36,112 };
+		[4] = {  40,144,  72,112 };
+		[5] = {  76,144, 108,112 };
+		[6] = { 112,144, 144,112 };
+		[7] = { 148,144, 180,112 };
+		[8] = { 184,144, 216,112 };
+		[9] = { 220,144, 252,112 };
+	};
+
 
 	ch.clickSound = createSample("clickSound");
 	loadSample(courseplay.hud.clickSound, Utils.getFilename("sounds/cpClickSound.wav", courseplay.path), false);
 
 	courseplay.lightsNeeded = false;
+
+
+	-- debug channels
+	courseplay:setUpDebugChannels();
+
+	-- "start at _ point" options
+	courseplay.START_AT_NEAREST_POINT = 1;
+	courseplay.START_AT_FIRST_POINT = 2;
+	courseplay.START_AT_CURRENT_POINT = 3;
 
 	local langNumData = {
 		br = { '.', ',' },
@@ -333,52 +461,56 @@ function courseplay:setGlobalData()
 
 	--GLOBALINFOTEXT
 	courseplay.globalInfoText = {};
-	courseplay.globalInfoText.fontSize = 0.02;
-	courseplay.globalInfoText.lineHeight = courseplay.globalInfoText.fontSize * 1.1;
-	courseplay.globalInfoText.posX = Utils.getNoNil(customGitPosX, 0.035);
-	courseplay.globalInfoText.posY = Utils.getNoNil(customGitPosY, 0.01238);
-	local pdaHeight = 0.3375;
-	courseplay.globalInfoText.hideWhenPdaActive = courseplay.globalInfoText.posY < pdaHeight; --g_currentMission.MissionPDA.hudPDABaseHeight;
-	courseplay.globalInfoText.backgroundImg = "dataS2/menu/white.png";
-	courseplay.globalInfoText.backgroundPadding = 0.005;
-	courseplay.globalInfoText.backgroundX = courseplay.globalInfoText.posX - courseplay.globalInfoText.backgroundPadding;
-	courseplay.globalInfoText.backgroundY = courseplay.globalInfoText.posY;
+	courseplay.globalInfoText.posY = 0.01238; -- = ingameMap posY
+	courseplay.globalInfoText.posYAboveMap = courseplay.globalInfoText.posY + 0.027777777777778 + 0.20833333333333;
+
+	courseplay.globalInfoText.fontSize = 0.016;
+	courseplay.globalInfoText.lineHeight = courseplay.globalInfoText.fontSize * 1.2;
+	courseplay.globalInfoText.lineMargin = courseplay.globalInfoText.lineHeight * 0.2;
+	courseplay.globalInfoText.buttonHeight = courseplay.globalInfoText.lineHeight;
+	courseplay.globalInfoText.buttonWidth = courseplay.globalInfoText.buttonHeight / g_screenAspectRatio;
+	courseplay.globalInfoText.buttonPosX = 0.015625; -- = ingameMap posX
+	courseplay.globalInfoText.buttonMargin = courseplay.globalInfoText.buttonWidth * 0.4;
+	courseplay.globalInfoText.backgroundPadding = courseplay.globalInfoText.buttonWidth * 0.2;
+	courseplay.globalInfoText.backgroundImg = 'dataS2/menu/white.png';
+	courseplay.globalInfoText.backgroundPosX = courseplay.globalInfoText.buttonPosX + courseplay.globalInfoText.buttonWidth + courseplay.globalInfoText.buttonMargin;
+	courseplay.globalInfoText.backgroundPosY = courseplay.globalInfoText.posY;
+	courseplay.globalInfoText.textPosX = courseplay.globalInfoText.backgroundPosX + courseplay.globalInfoText.backgroundPadding;
 	courseplay.globalInfoText.content = {};
 	courseplay.globalInfoText.hasContent = false;
 	courseplay.globalInfoText.vehicleHasText = {};
 	courseplay.globalInfoText.levelColors = {
-		[-2] = courseplay.utils.table.copy(courseplay.hud.colors.closeRed);
-		[-1] = courseplay.utils.table.copy(courseplay.hud.colors.activeRed);
-		[0]  = courseplay.utils.table.copy(courseplay.hud.colors.hover);
-		[1]  = courseplay.utils.table.copy(courseplay.hud.colors.activeGreen);
+		[-2] = courseplay.hud.colors.closeRed;
+		[-1] = courseplay.hud.colors.activeRed;
+		[0]  = courseplay.hud.colors.hover;
+		[1]  = courseplay.hud.colors.activeGreen;
 	};
-	for i=-2,1 do
-		courseplay.globalInfoText.levelColors[i][4] = 0.85;
-	end;
+
 	courseplay.globalInfoText.msgReference = {
-		BALER_NETS 		  = { level = -2, text = 'COURSEPLAY_BALER_NEEDS_NETS' };
-		BGA_IS_FULL       = { level = -1, text = 'COURSEPLAY_BGA_IS_FULL'};
-		DAMAGE_IS 		  = { level =  0, text = 'COURSEPLAY_DAMAGE_IS_BEING_REPAIRED' };
-		DAMAGE_MUST 	  = { level = -2, text = 'COURSEPLAY_DAMAGE_MUST_BE_REPAIRED' };
-		DAMAGE_SHOULD 	  = { level = -1, text = 'COURSEPLAY_DAMAGE_SHOULD_BE_REPAIRED' };
-		END_POINT 		  = { level =  0, text = 'COURSEPLAY_REACHED_END_POINT' };
-		FUEL_IS 		  = { level =  0, text = 'COURSEPLAY_IS_BEING_REFUELED' };
-		FUEL_MUST 		  = { level = -2, text = 'COURSEPLAY_MUST_BE_REFUELED' };
-		FUEL_SHOULD 	  = { level = -1, text = 'COURSEPLAY_SHOULD_BE_REFUELED' };
-		HOSE_MISSING 	  = { level = -2, text = 'COURSEPLAY_HOSEMISSING' };
-		NEEDS_REFILLING   = { level = -1, text = 'COURSEPLAY_NEEDS_REFILLING' };
-		NEEDS_UNLOADING   = { level = -1, text = 'COURSEPLAY_NEEDS_UNLOADING' };
-		OVERLOADING_POINT = { level =  0, text = 'COURSEPLAY_REACHED_OVERLOADING_POINT' };
-		PICKUP_JAMMED 	  = { level = -2, text = 'COURSEPLAY_PICKUP_JAMMED' };
-		SLIPPING_0 		  = { level = -1, text = 'COURSEPLAY_SLIPPING_WARNING_0' };
-		SLIPPING_1 		  = { level = -1, text = 'COURSEPLAY_SLIPPING_WARNING_1' };
-		SLIPPING_2 		  = { level = -2, text = 'COURSEPLAY_SLIPPING_WARNING_2' };
-		TRAFFIC 		  = { level = -1, text = 'COURSEPLAY_IS_IN_TRAFFIC' };
-		UNLOADING_BALE 	  = { level =  0, text = 'COURSEPLAY_UNLOADING_BALES' };
-		WAIT_POINT 		  = { level =  0, text = 'COURSEPLAY_REACHED_WAITING_POINT' };
-		WATER 			  = { level = -2, text = 'COURSEPLAY_WATER_WARNING' };
-		WEATHER 		  = { level =  0, text = 'COURSEPLAY_WEATHER_WARNING' };
-		WORK_END 		  = { level =  1, text = 'COURSEPLAY_WORK_END' };
+		BALER_NETS					= { level = -2, text = 'COURSEPLAY_BALER_NEEDS_NETS' };
+		BGA_IS_FULL					= { level = -1, text = 'COURSEPLAY_BGA_IS_FULL'};
+		DAMAGE_IS					= { level =  0, text = 'COURSEPLAY_DAMAGE_IS_BEING_REPAIRED' };
+		DAMAGE_MUST					= { level = -2, text = 'COURSEPLAY_DAMAGE_MUST_BE_REPAIRED' };
+		DAMAGE_SHOULD				= { level = -1, text = 'COURSEPLAY_DAMAGE_SHOULD_BE_REPAIRED' };
+		END_POINT					= { level =  0, text = 'COURSEPLAY_REACHED_END_POINT' };
+		FARM_SILO_NO_FILLTYPE		= { level = -2, text = 'COURSEPLAY_FARM_SILO_NO_FILLTYPE'};
+		FARM_SILO_IS_EMPTY			= { level =  0, text = 'COURSEPLAY_FARM_SILO_IS_EMPTY'};
+		FUEL_IS						= { level =  0, text = 'COURSEPLAY_IS_BEING_REFUELED' };
+		FUEL_MUST					= { level = -2, text = 'COURSEPLAY_MUST_BE_REFUELED' };
+		FUEL_SHOULD					= { level = -1, text = 'COURSEPLAY_SHOULD_BE_REFUELED' };
+		HOSE_MISSING				= { level = -2, text = 'COURSEPLAY_HOSEMISSING' };
+		NEEDS_REFILLING				= { level = -1, text = 'COURSEPLAY_NEEDS_REFILLING' };
+		NEEDS_UNLOADING				= { level = -1, text = 'COURSEPLAY_NEEDS_UNLOADING' };
+		OVERLOADING_POINT			= { level =  0, text = 'COURSEPLAY_REACHED_OVERLOADING_POINT' };
+		PICKUP_JAMMED				= { level = -2, text = 'COURSEPLAY_PICKUP_JAMMED' };
+		SLIPPING_1					= { level = -1, text = 'COURSEPLAY_SLIPPING_WARNING' };
+		SLIPPING_2					= { level = -2, text = 'COURSEPLAY_SLIPPING_WARNING' };
+		TRAFFIC						= { level = -1, text = 'COURSEPLAY_IS_IN_TRAFFIC' };
+		UNLOADING_BALE				= { level =  0, text = 'COURSEPLAY_UNLOADING_BALES' };
+		WAIT_POINT					= { level =  0, text = 'COURSEPLAY_REACHED_WAITING_POINT' };
+		WATER						= { level = -2, text = 'COURSEPLAY_WATER_WARNING' };
+		WEATHER						= { level =  0, text = 'COURSEPLAY_WEATHER_WARNING' };
+		WORK_END					= { level =  1, text = 'COURSEPLAY_WORK_END' };
 	};
 
 
@@ -461,9 +593,6 @@ function courseplay:setGlobalData()
 	courseplay.fields.seedUsageCalculator = {};
 	courseplay.fields.seedUsageCalculator.fieldsWithoutSeedData = {};
 
-	--PATHFINDING
-	courseplay.pathfinding = {};
-
 	--UTF8
 	courseplay.allowedCharacters = courseplay:getAllowedCharacters();
 	courseplay.utf8normalization = courseplay:getUtf8normalization();
@@ -474,10 +603,11 @@ function courseplay:setGlobalData()
 	courseplay.wagePerMin  = wagesAmount / 60;
 
 	--print("\t### Courseplay: setGlobalData() finished");
+
+	courseplay.globalDataSet = true;
 end;
 
 courseplay:initialize();
 
 --load(), update(), updateTick(), draw() are located in base.lua
 --mouseEvent(), keyEvent() are located in input.lua
-

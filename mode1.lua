@@ -1,7 +1,5 @@
 -- handles "mode1" : waiting at start until tippers full - driving course and unloading on trigger
 function courseplay:handle_mode1(vehicle, allowedToDrive)
-	local activeTipper;
-
 	-- done tipping
 	if vehicle.cp.unloadingTipper ~= nil and vehicle.cp.unloadingTipper.fillLevel == 0 then
 		vehicle.cp.unloadingTipper = nil
@@ -11,10 +9,9 @@ function courseplay:handle_mode1(vehicle, allowedToDrive)
 	end
 
 	-- tippers are not full
-	-- tipper should be loaded 10 meters before wp 2	
-	if vehicle.cp.isLoaded ~= true and ((vehicle.recordnumber == 2 and vehicle.cp.tipperFillLevel < vehicle.cp.tipperCapacity and vehicle.cp.isUnloaded == false --[[and vehicle.cp.distanceToTarget < 10]]) or vehicle.cp.lastTrailerToFillDistance) then
-		allowedToDrive = courseplay:load_tippers(vehicle);
-		vehicle.cp.infoText = string.format(courseplay:loc("COURSEPLAY_LOADING_AMOUNT"), vehicle.cp.tipperFillLevel, vehicle.cp.tipperCapacity);
+	if vehicle.cp.isLoaded ~= true and ((vehicle.recordnumber == 2 and vehicle.cp.tipperFillLevel < vehicle.cp.tipperCapacity and vehicle.cp.isUnloaded == false) or vehicle.cp.trailerFillDistance) then
+		allowedToDrive = courseplay:load_tippers(vehicle, allowedToDrive);
+		courseplay:setInfoText(vehicle, string.format(courseplay:loc("COURSEPLAY_LOADING_AMOUNT"), vehicle.cp.tipperFillLevel, vehicle.cp.tipperCapacity));
 	end
 
 	-- damn, I missed the trigger!
@@ -31,7 +28,7 @@ function courseplay:handle_mode1(vehicle, allowedToDrive)
 
 		if trigger_id ~= nil then
 			local trigger_x, trigger_y, trigger_z = getWorldTranslation(trigger_id)
-			local ctx, cty, ctz = getWorldTranslation(vehicle.rootNode);
+			local ctx, cty, ctz = getWorldTranslation(vehicle.cp.DirectionNode);
 			local distance_to_trigger = courseplay:distance(ctx, ctz, trigger_x, trigger_z);
 
 			-- Start reversing value is to check if we have started to reverse
@@ -41,10 +38,16 @@ function courseplay:handle_mode1(vehicle, allowedToDrive)
 				courseplay:debug(string.format("%s: Is starting to reverse. Tip trigger is reset.", nameNum(vehicle)), 13);
 			end;
 
-			if distance_to_trigger > 75 or startReversing then
+			local extraLength = 5;
+			if t.bunkerSilo ~= nil and t.bunkerSilo.movingPlanes ~= nil and vehicle.cp.handleAsOneSilo ~= true then
+				-- We are a bunkerSilo, so we need to add more extraLength to the totalLength.
+				extraLength = 55;
+			end;
+
+			if distance_to_trigger > (vehicle.cp.totalLength + extraLength) or startReversing then
 				courseplay:resetTipTrigger(vehicle);
-				courseplay:debug(nameNum(vehicle) .. ": distance to currentTipTrigger = " .. tostring(distance_to_trigger) .. " (> 75 or start reversing) --> currentTipTrigger = nil", 1);
-			end	
+				courseplay:debug(string.format("%s: distance to currentTipTrigger = %d (> %d or start reversing) --> currentTipTrigger = nil", nameNum(vehicle), distance_to_trigger, (vehicle.cp.totalLength + 5)), 1);
+			end
 		else
 			courseplay:resetTipTrigger(vehicle);
 		end;
@@ -53,7 +56,7 @@ function courseplay:handle_mode1(vehicle, allowedToDrive)
 	-- tipper is not empty and tractor reaches TipTrigger
 	if vehicle.cp.tipperFillLevel > 0 and vehicle.cp.currentTipTrigger ~= nil and vehicle.recordnumber > 3 then
 		allowedToDrive = courseplay:unload_tippers(vehicle, allowedToDrive);
-		vehicle.cp.infoText = courseplay:loc("COURSEPLAY_TIPTRIGGER_REACHED");
+		courseplay:setInfoText(vehicle, courseplay:loc("COURSEPLAY_TIPTRIGGER_REACHED"));
 	end;
 
 	return allowedToDrive;

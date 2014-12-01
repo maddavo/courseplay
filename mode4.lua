@@ -1,6 +1,7 @@
-function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
+function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct, refSpeed)
 	local workTool;
-
+	local forceSpeedLimit = refSpeed
+	local fieldArea = (self.recordnumber > self.cp.startWork) and (self.recordnumber < self.cp.stopWork)
 	local workArea = (self.recordnumber > self.cp.startWork) and (self.recordnumber < self.cp.finishWork)
 	local isFinishingWork = false
 	local hasFinishedWork = false
@@ -16,7 +17,12 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 			courseplay:setRecordNumber(self, math.min(self.cp.finishWork + 1, self.maxnumber));
 		end;
 	end;
-
+	
+	--go with field speed	
+	if fieldArea then
+		workSpeed = 1;
+	end
+	
 	-- Begin Work
 	if self.cp.lastRecordnumber == self.cp.startWork and fillLevelPct ~= 0 then
 		if self.cp.abortWork ~= nil then
@@ -63,7 +69,7 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 		end;
 	end
 	--
-	if (self.recordnumber == self.cp.stopWork or self.cp.lastRecordnumber == self.cp.stopWork) and self.cp.abortWork == nil and not isFinishingWork and self.wait then
+	if (self.recordnumber == self.cp.stopWork or self.cp.lastRecordnumber == self.cp.stopWork) and self.cp.abortWork == nil and not isFinishingWork and self.cp.wait then
 		allowedToDrive = courseplay:brakeToStop(self);
 		courseplay:setGlobalInfoText(self, 'WORK_END');
 		hasFinishedWork = true;
@@ -80,11 +86,22 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 	local turnStart = prevPoint.turnStart;
 	local turnEnd = prevPoint.turnEnd;
 
-	for i=1, #(self.tippers) do
-		workTool = self.tippers[i];
+	for i=1, #(self.cp.workTools) do
+		workTool = self.cp.workTools[i];
 
 		local isFolding, isFolded, isUnfolded = courseplay:isFolding(workTool);
+		local needsLowering = false
+		
+		if workTool.attacherJoint ~= nil then
+			needsLowering = workTool.attacherJoint.needsLowering
+		end
+		
+		--speedlimits
+		if workTool.doCheckSpeedLimit and workTool:doCheckSpeedLimit() then
+			forceSpeedLimit = math.min(forceSpeedLimit, workTool.speedLimit)
+		end
 
+		
 		-- stop while folding
 		if courseplay:isFoldable(workTool) then
 			if isFolding and self.cp.turnStage == 0 then
@@ -96,7 +113,6 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 
 		if workArea and fillLevelPct ~= 0 and (self.cp.abortWork == nil or self.cp.runOnceStartCourse) and self.cp.turnStage == 0 and not self.cp.inTraffic then
 			self.cp.runOnceStartCourse = false;
-			workSpeed = 1;
 			--turn On                     courseplay:handleSpecialTools(self,workTool,unfold,lower,turnOn,allowedToDrive,cover,unload,ridgeMarker)
 			specialTool, allowedToDrive = courseplay:handleSpecialTools(self,workTool,true,true,true,allowedToDrive,nil,nil, ridgeMarker)
 			if allowedToDrive then
@@ -129,7 +145,7 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 						end;
 
 						--lower/raise
-						if workTool.needsLowering and workTool.aiNeedsLowering then
+						if needsLowering and workTool.aiNeedsLowering then
 							--courseplay:debug(string.format("WP%d: isLowered() = %s, hasGroundContact = %s", self.recordnumber, tostring(workTool:isLowered()), tostring(workTool.hasGroundContact)),12);
 							if not workTool:isLowered() then
 								courseplay:debug(string.format('%s: lower order', nameNum(workTool)), 17);
@@ -169,7 +185,6 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 
 		--TRAFFIC: TURN OFF
 		elseif workArea and self.cp.abortWork == nil and self.cp.inTraffic then
-			workSpeed = 0;
 			specialTool, allowedToDrive = courseplay:handleSpecialTools(self, workTool, true, true, false, allowedToDrive, nil, nil, ridgeMarker);
 			if not specialTool then
 				if workTool.setIsTurnedOn ~= nil and workTool.isTurnedOn then
@@ -180,7 +195,6 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 
 		--TURN OFF AND FOLD
 		elseif self.cp.turnStage == 0 then
-			workSpeed = 0;
 			--turn off
 			specialTool, allowedToDrive = courseplay:handleSpecialTools(self,workTool,false,false,false,allowedToDrive,nil,nil, ridgeMarker)
 			if not specialTool then
@@ -191,7 +205,7 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 
 				--raise
 				if not isFolding and isUnfolded then
-					if workTool.needsLowering and workTool.aiNeedsLowering and workTool:isLowered() then
+					if needsLowering and workTool.aiNeedsLowering and workTool:isLowered() then
 						self:setAIImplementsMoveDown(false);
 						courseplay:debug(string.format('%s: raise order', nameNum(workTool)), 17);
 					end;
@@ -213,11 +227,11 @@ function courseplay:handle_mode4(self, allowedToDrive, workSpeed, fillLevelPct)
 		--[[if not allowedToDrive then
 			workTool:setIsTurnedOn(false, false)
 		end]] --?? why am i here ??
-	end; --END for i in self.tippers
+	end; --END for i in self.cp.workTools
 	if hasFinishedWork then
 		isFinishingWork = true
 	end
 
 
-	return allowedToDrive, workArea, workSpeed,isFinishingWork
+	return allowedToDrive, workArea, workSpeed,isFinishingWork,forceSpeedLimit
 end;

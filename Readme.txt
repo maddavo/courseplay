@@ -1,10 +1,9 @@
-Courseplay for Farming Simulator 2013
+Courseplay for Farming Simulator 2015
 
-Version:	3.41 
-Date:		21 May 2013
+Version:	4.00 beta
+Date:		2014
 Authors:	Jakob Tischler
 			Thomas Gärtner
-			horoman
 			Satis
 
 For further information, visit http://courseplay.github.io/courseplay/

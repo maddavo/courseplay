@@ -2,10 +2,21 @@
 local courseplay_manager_mt = Class(courseplay_manager);
 
 function courseplay_manager:loadMap(name)
+	self.isCourseplayManager = true;
+
+	if not courseplay.globalDataSet then
+		courseplay:setGlobalData();
+	end;
+
 	if courseplay.isDeveloper then
 		addConsoleCommand('cpAddMoney', ('Add %s to your bank account'):format(g_i18n:formatMoney(5000000)), 'devAddMoney', self);
 		addConsoleCommand('cpAddFillLevels', 'Add 500\'000 l to all of your silos', 'devAddFillLevels', self);
 	end;
+
+	self.firstRun = true;
+	self.showFieldScanYesNoDialogue = false;
+	self.showWagesYesNoDialogue = false;
+	self:createInitialCourseplayFile();
 
 	if g_currentMission.cp_courses == nil then
 		--courseplay:debug("cp courses was nil and initialized", 8);
@@ -26,22 +37,17 @@ function courseplay_manager:loadMap(name)
 	self.globalInfoTextOverlays = {};
 	self.buttons.globalInfoText = {};
 	local git = courseplay.globalInfoText;
-	local buttonHeight = git.fontSize;
-	local buttonWidth = buttonHeight / g_screenAspectRatio; -- buttonHeight * 1080 / 1920;
-	local buttonX = git.backgroundX - git.backgroundPadding - buttonWidth;
 	for i=1,self.globalInfoTextMaxNum do
-		local posY = git.backgroundY + (i - 1) * git.lineHeight;
-		self.globalInfoTextOverlays[i] = Overlay:new(string.format("globalInfoTextOverlay%d", i), git.backgroundImg, git.backgroundX, posY, 0.1, git.fontSize);
-		self:createButton('globalInfoText', 'goToVehicle', i, 'pageNav_7.png', buttonX, posY, buttonWidth, buttonHeight);
+		local posY = git.backgroundPosY + (i - 1) * git.lineHeight;
+		self.globalInfoTextOverlays[i] = Overlay:new(string.format("globalInfoTextOverlay%d", i), git.backgroundImg, git.backgroundPosX, posY, 0.1, git.buttonHeight);
+		courseplay.button:new(self, 'globalInfoText', 'iconSprite.png', 'goToVehicle', i, git.buttonPosX, posY, git.buttonWidth, git.buttonHeight);
 	end;
 	self.buttons.globalInfoTextClickArea = {
-		x1 = buttonX;
-		x2 = buttonX + buttonWidth;
-		y1 = git.backgroundY,
-		y2 = git.backgroundY + (self.globalInfoTextMaxNum  * git.lineHeight);
+		x1 = git.buttonPosX;
+		x2 = git.buttonPosX + git.buttonWidth;
+		y1 = git.backgroundPosY,
+		y2 = git.backgroundPosY + (self.globalInfoTextMaxNum  * (git.lineHeight + git.lineMargin));
 	};
-
-	self:createInitialCourseplayFile();
 
 	self.playerOnFootMouseEnabled = false;
 	self.wasPlayerFrozen = false;
@@ -74,9 +80,9 @@ function courseplay_manager:loadMap(name)
 	local progressBarPath = Utils.getFilename('img/progressBar.png', courseplay.path);
 	self.fieldScanInfo.progressBarOverlay = Overlay:new('fieldScanInfoProgressBar', progressBarPath, self.fieldScanInfo.lineX, self.fieldScanInfo.bgY + 16/1080, self.fieldScanInfo.progressBarWidth, 16/1080);
 	self.fieldScanInfo.percentColors = {
-		{ pct = 0.0, color = { 0.882353, 0.105882, 0 } },
-		{ pct = 0.5, color = { 1.000000, 0.800000, 0 } },
-		{ pct = 1.0, color = { 0.537255, 0.952941, 0 } }
+		{ pct = 0.0, color = { 225/255,  27/255, 0/255 } },
+		{ pct = 0.5, color = { 255/255, 204/255, 0/255 } },
+		{ pct = 1.0, color = { 137/255, 243/255, 0/255 } }
 	};
 
 
@@ -84,95 +90,128 @@ function courseplay_manager:loadMap(name)
 		courseplay.fields:loadAllCustomFields();
 	end;
 
+	courseplay.totalCoursePlayers = {};
+	courseplay.activeCoursePlayers = {};
+
 	courseplay.wageDifficultyMultiplier = Utils.lerp(0.5, 1, (g_currentMission.missionStats.difficulty - 1) / 2);
 
-	self.firstRun = true;
-
 	g_currentMission.environment:addMinuteChangeListener(courseplay_manager);
+	self.realTimeMinuteTimer = 0;
+	self.realTime10SecsTimer = 0;
 end;
 
+-- Giants - very intelligently - deletes any mod file in the savegame folder when saving. And now we get it back!
+local function backupCpFiles(self)
+	if g_server == nil and g_dedicatedServerInfo == nil then return end;
+
+	if not fileExists(courseplay.cpXmlFilePath) then
+		-- ERROR: CP FILE DOESN'T EXIST
+		return;
+	end;
+
+	-- backup CP files before saveSavegame() deletes them
+	local savegameIndex = g_currentMission.missionInfo.savegameIndex;
+	courseplay_manager.cpTempSaveFolderPath = getUserProfileAppPath() .. 'courseplayBackupSavegame' .. savegameIndex;
+	createFolder(courseplay_manager.cpTempSaveFolderPath);
+	-- print('create folder at ' .. courseplay_manager.cpTempSaveFolderPath);
+	courseplay_manager.cpFileBackupPath = courseplay_manager.cpTempSaveFolderPath .. '/courseplay.xml';
+	copyFile(courseplay.cpXmlFilePath, courseplay_manager.cpFileBackupPath, true);
+	-- print('copy cp file to backup folder: ' .. courseplay_manager.cpFileBackupPath);
+
+	if fileExists(courseplay.cpFieldsXmlFilePath) then
+		courseplay_manager.cpFieldsFileBackupPath = courseplay_manager.cpTempSaveFolderPath .. '/courseplayFields.xml';
+		copyFile(courseplay.cpFieldsXmlFilePath, courseplay_manager.cpFieldsFileBackupPath, true);
+		-- print('copy cp fields file to backup folder: ' .. courseplay_manager.cpFieldsFileBackupPath);
+	end;
+end;
+g_careerScreen.saveSavegame = Utils.prependedFunction(g_careerScreen.saveSavegame, backupCpFiles);
+
+local function getThatFuckerBack(self)
+	if g_server == nil and g_dedicatedServerInfo == nil then return end;
+
+	if not courseplay_manager.cpFileBackupPath then return end;
+
+	local savegameIndex = g_currentMission.missionInfo.savegameIndex;
+	local savegameFolderPath = g_currentMission.missionInfo.savegameDirectory or courseplay.savegameFolderPath;
+	if savegameFolderPath == nil then
+		savegameFolderPath = ('%ssavegame%d'):format(getUserProfileAppPath(), savegameIndex);
+	end;
+
+	if fileExists(savegameFolderPath .. '/careerSavegame.xml') then -- savegame isn't corrupted and has been saved correctly
+		-- print('orig savegame folder still exists');
+
+		-- copy backed up files back to our savegame directory
+		-- print('copy backup cp file to orig savegame folder');
+		copyFile(courseplay_manager.cpFileBackupPath, courseplay.cpXmlFilePath, true);
+		courseplay_manager.cpFileBackupPath = nil;
+		if courseplay_manager.cpFieldsFileBackupPath then
+			-- print('copy backup cp fields file to orig savegame folder');
+			copyFile(courseplay_manager.cpFieldsFileBackupPath, courseplay.cpFieldsXmlFilePath, true);
+			courseplay_manager.cpFieldsFileBackupPath = nil;
+		end;
+
+		deleteFolder(courseplay_manager.cpTempSaveFolderPath);
+		-- print('delete backup folder');
+
+	else -- corrupt savegame: display backup info message
+		print(('This savegame has been corrupted. The Courseplay file has been backed up to %q'):format(courseplay_manager.cpTempSaveFolderPath));
+
+		local msgTitle = 'Courseplay';
+		local msgTxt = 'This savegame has been corrupted.';
+		if courseplay_manager.cpFieldsFileBackupPath then
+			msgTxt = msgTxt .. ('\nYour Courseplay files have been backed up to the %q directory.'):format('courseplayBackupSavegame' .. savegameIndex);
+		else
+			msgTxt = msgTxt .. ('\nYour Courseplay file has been backed up to the %q directory.'):format('courseplayBackupSavegame' .. savegameIndex);
+		end;
+		msgTxt = msgTxt .. ('\n\nFull path: %q'):format(courseplay_manager.cpTempSaveFolderPath);
+		g_currentMission.inGameMessage:showMessage(msgTitle, msgTxt, 15000, false);
+	end;
+end;
+g_careerScreen.saveSavegame = Utils.appendedFunction(g_careerScreen.saveSavegame, getThatFuckerBack);
+
 function courseplay_manager:createInitialCourseplayFile()
-	local dir = g_currentMission.missionInfo.savegameDirectory;
-	if dir then
-		local filePath = dir .. '/courseplay.xml';
-		-- print(string.format('createInitialCourseplayFile(): filePath=%q', filePath));
+	if courseplay.cpXmlFilePath then
+		createFolder(courseplay.savegameFolderPath);
 		local file;
-		if not fileExists(filePath) then
-			file = createXMLFile('courseplayFile', filePath, 'XML');
+		local created, changed = false, false;
+		if not fileExists(courseplay.cpXmlFilePath) then
+			file = createXMLFile('courseplayFile', courseplay.cpXmlFilePath, 'XML');
+			created = true;
+			self.showFieldScanYesNoDialogue = true;
+			self.showWagesYesNoDialogue = true;
 			-- print(string.format('\tcreateXmlFile("courseplayFile", [path], XML), file=%s', tostring(file)));
 		else
-			file = loadXMLFile('courseplayFile', filePath);
+			file = loadXMLFile('courseplayFile', courseplay.cpXmlFilePath);
 			-- print(string.format('\tloadXMLFile("courseplayFile", [path]), file=%s', tostring(file)));
 		end;
 
-		-- NOTE: usually "hasXMLProperty" would be used in this case. This presented some weird shitty problem though, in that the first of each set (posX, posX and debugScannedFields) were created, but not the second ones. So, getXML... is the better choice in this case.
-		if not getXMLFloat(file, 'XML.courseplayHud#posX') then
-			setXMLString(file, 'XML.courseplayHud#posX', ('%.3f'):format(courseplay.hud.infoBasePosX));
-		end;
-		if not getXMLFloat(file, 'XML.courseplayHud#posY') then
-			setXMLString(file, 'XML.courseplayHud#posY', ('%.3f'):format(courseplay.hud.infoBasePosY));
+		local data = {
+			{ tag = 'courseplayHud', attr = 'posX', value = ('%.3f'):format(courseplay.hud.infoBasePosX), get = 'Float', set = 'String' };
+			{ tag = 'courseplayHud', attr = 'posY', value = ('%.3f'):format(courseplay.hud.infoBasePosY), get = 'Float', set = 'String' };
+
+			{ tag = 'courseplayFields', attr = 'automaticScan', value = tostring(courseplay.fields.automaticScan), get = 'Bool', set = 'String' };
+			{ tag = 'courseplayFields', attr = 'onlyScanOwnedFields', value = tostring(courseplay.fields.onlyScanOwnedFields), get = 'Bool', set = 'String' };
+			{ tag = 'courseplayFields', attr = 'debugScannedFields', value = tostring(courseplay.fields.debugScannedFields), get = 'Bool', set = 'String' };
+			{ tag = 'courseplayFields', attr = 'debugCustomLoadedFields', value = tostring(courseplay.fields.debugCustomLoadedFields), get = 'Bool', set = 'String' };
+			{ tag = 'courseplayFields', attr = 'scanStep', value = courseplay.fields.scanStep, get = 'Int', set = 'Int' };
+
+			{ tag = 'courseplayWages', attr = 'active', value = tostring(courseplay.wagesActive), get = 'Bool', set = 'String' };
+			{ tag = 'courseplayWages', attr = 'wagePerHour', value = courseplay.wagePerHour, get = 'Int', set = 'Int' };
+		};
+
+		for _,d in ipairs(data) do
+			local node = ('XML.%s#%s'):format(d.tag, d.attr);
+			if created or courseplay.prmGetXMLFn[d.get](file, node) == nil then
+				courseplay.prmSetXMLFn[d.set](file, node, d.value);
+				changed = true;
+			end;
 		end;
 
-		if not getXMLFloat(file, 'XML.courseplayGlobalInfoText#posX') then
-			setXMLString(file, 'XML.courseplayGlobalInfoText#posX', ('%.3f'):format(courseplay.globalInfoText.posX));
+		if changed then
+			saveXMLFile(file);
 		end;
-		if not getXMLFloat(file, 'XML.courseplayGlobalInfoText#posY') then
-			setXMLString(file, 'XML.courseplayGlobalInfoText#posY', ('%.3f'):format(courseplay.globalInfoText.posY));
-		end;
-
-		if getXMLBool(file, 'XML.courseplayFields#automaticScan') == nil then
-			setXMLString(file, 'XML.courseplayFields#automaticScan', tostring(courseplay.fields.automaticScan));
-		end;
-		if getXMLBool(file, 'XML.courseplayFields#onlyScanOwnedFields') == nil then
-			setXMLString(file, 'XML.courseplayFields#onlyScanOwnedFields', tostring(courseplay.fields.onlyScanOwnedFields));
-		end;
-		if getXMLBool(file, 'XML.courseplayFields#debugScannedFields') == nil then
-			setXMLString(file, 'XML.courseplayFields#debugScannedFields', tostring(courseplay.fields.debugScannedFields));
-		end;
-		if getXMLBool(file, 'XML.courseplayFields#debugCustomLoadedFields') == nil then
-			setXMLString(file, 'XML.courseplayFields#debugCustomLoadedFields', tostring(courseplay.fields.debugCustomLoadedFields));
-		end;
-		if not getXMLInt(file, 'XML.courseplayFields#scanStep') then
-			setXMLInt(file, 'XML.courseplayFields#scanStep', courseplay.fields.scanStep);
-		end;
-
-		if getXMLBool(file, 'XML.courseplayWages#active') == nil then
-			setXMLString(file, 'XML.courseplayWages#active', tostring(courseplay.wagesActive));
-		end;
-		if not getXMLInt(file, 'XML.courseplayWages#wagePerHour') then
-			setXMLInt(file, 'XML.courseplayWages#wagePerHour', courseplay.wagePerHour);
-		end;
-
-		saveXMLFile(file);
 		delete(file);
 	end;
-end;
-
-function courseplay_manager:createButton(section, fn, prm, img, x, y, w, h)
-	local overlay = Overlay:new(img, Utils.getFilename("img/" .. img, courseplay.path), x, y, w, h);
-	local button = { 
-		section = section, 
-		overlay = overlay, 
-		overlays = { overlay }, 
-		functionToCall = fn, 
-		parameter = prm, 
-		x_init = x,
-		x = x,
-		x2 = (x + w),
-		y_init = y,
-		y = y,
-		y2 = (y + h),
-		canBeClicked = fn ~= nil,
-		show = true,
-		isClicked = false,
-		isActive = false,
-		isDisabled = false,
-		isHovered = false,
-		isHidden = false
-	};
-	--print(string.format("courseplay_manager:createButton(%q, %q, %s, %q, %.3f, %.3f, %.3f, %.3f)", section, fn, prm, img, x, y, w, h));
-	table.insert(courseplay_manager.buttons[tostring(section)], button);
-	--return #(courseplay_manager.buttons[tostring(section)]);
 end;
 
 function courseplay_manager:deleteMap()
@@ -188,25 +227,20 @@ function courseplay_manager:deleteMap()
 
 	--buttons
 	for i,vehicle in pairs(g_currentMission.steerables) do
-		if vehicle.cp ~= nil then
+		if vehicle.cp ~= nil and vehicle.cp.hasCourseplaySpec then
 			if vehicle.cp.globalInfoTextOverlay ~= nil then
 				vehicle.cp.globalInfoTextOverlay:delete();
 			end;
 			if vehicle.cp.buttons ~= nil then
-				courseplay.button:deleteButtonOverlays(vehicle);
+				courseplay.buttons:deleteButtonOverlays(vehicle);
 			end;
 		end;
 	end;
 
 	--global info text
 	for i,button in pairs(self.buttons.globalInfoText) do
-		if button.overlays ~= nil then
-			for j,overlay in pairs(button.overlays) do
-				if overlay.overlayId ~= nil and overlay.delete ~= nil then
-					overlay:delete();
-				end;
-			end;
-		end;
+		button:deleteOverlay();
+
 		if self.globalInfoTextOverlays[i] then
 			local gitOverlay = self.globalInfoTextOverlays[i];
 			if gitOverlay.overlayId ~= nil and gitOverlay.delete ~= nil then
@@ -235,6 +269,9 @@ function courseplay_manager:deleteMap()
 	end;
 	courseplay.fields.seedUsageCalculator = {};
 	courseplay.fields.seedUsageCalculator.fieldsWithoutSeedData = {};
+
+	-- load/set global again on new map
+	courseplay.globalDataSet = false;
 end;
 
 function courseplay_manager:draw()
@@ -243,10 +280,14 @@ function courseplay_manager:draw()
 	end;
 
 	courseplay.globalInfoText.hasContent = false;
+	local git = courseplay.globalInfoText;
 	local line = 0;
-	if (not courseplay.globalInfoText.hideWhenPdaActive or (courseplay.globalInfoText.hideWhenPdaActive and not g_currentMission.missionPDA.showPDA)) and table.maxn(courseplay.globalInfoText.content) > 0 then
+	local basePosY = courseplay.globalInfoText.backgroundPosY;
+	local ingameMap = g_currentMission.ingameMap;
+	if not (ingameMap.isVisible and ingameMap.isFullSize) and table.maxn(git.content) > 0 then
 		courseplay.globalInfoText.hasContent = true;
-		for _,refIndexes in pairs(courseplay.globalInfoText.content) do
+		basePosY = ingameMap.isVisible and git.posYAboveMap or git.posY;
+		for _,refIndexes in pairs(git.content) do
 			if line >= self.globalInfoTextMaxNum then
 				break;
 			end;
@@ -254,23 +295,33 @@ function courseplay_manager:draw()
 			for refIdx,data in pairs(refIndexes) do
 				line = line + 1;
 
+				-- background
 				local bg = self.globalInfoTextOverlays[line];
-				bg:setColor(unpack(courseplay.globalInfoText.levelColors[data.level]));
-				local posY = courseplay.globalInfoText.posY + ((line - 1) * courseplay.globalInfoText.lineHeight);
-				bg:setPosition(bg.x, posY);
+				bg:setColor(unpack(git.levelColors[data.level]));
+				local gfxPosY = basePosY + (line - 1) * (git.lineHeight + git.lineMargin);
+				bg:setPosition(bg.x, gfxPosY);
 				bg:setDimension(data.backgroundWidth, bg.height);
+				bg:render();
 
+				-- text
+				courseplay:setFontSettings('white', false);
+				local textPosY = gfxPosY + (git.lineHeight - git.fontSize) * 1.2; -- should be (lineHeight-fontSize)*0.5, but there seems to be some pixel/sub-pixel rendering error
+				renderText(git.textPosX, textPosY, git.fontSize, data.text);
+
+				-- button
 				local button = self.buttons.globalInfoText[line];
 				if button ~= nil then
-					local currentColor = button.overlay.curColor;
+					button:setPosition(button.overlay.x, gfxPosY)
+
+					local currentColor = button.curColor;
 					local targetColor = currentColor;
 
-					button.canBeClicked = true;
-					button.isDisabled = data.vehicle.isBroken or data.vehicle.isControlled;
-					button.parameter = data.vehicle;
+					button:setCanBeClicked(true);
+					button:setDisabled(data.vehicle.isBroken or data.vehicle.isControlled);
+					button:setParameter(data.vehicle);
 					if g_currentMission.controlledVehicle and g_currentMission.controlledVehicle == data.vehicle then
 						targetColor = 'activeGreen';
-						button.canBeClicked = false;
+						button:setCanBeClicked(false);
 					elseif button.isDisabled then
 						targetColor = 'whiteDisabled';
 					elseif button.isClicked then
@@ -283,20 +334,16 @@ function courseplay_manager:draw()
 
 					-- set color
 					if currentColor ~= targetColor then
-						courseplay.button:setButtonColor(button, targetColor)
+						button:setColor(targetColor);
 					end;
 
+					-- NOTE: do not use button:render() here, as we neither need the button.show check, nor the hoveredButton var, nor the color setting. Simply rendering the overlay suffices
 					button.overlay:render();
 				end;
-
-
-				bg:render();
-				courseplay:setFontSettings("white", false);
-				renderText(courseplay.globalInfoText.posX, posY, courseplay.globalInfoText.fontSize, data.text);
 			end;
 		end;
 	end;
-	self.buttons.globalInfoTextClickArea.y2 = courseplay.globalInfoText.backgroundY + (line  * courseplay.globalInfoText.lineHeight);
+	self.buttons.globalInfoTextClickArea.y2 = basePosY + (line  * (git.lineHeight + git.lineMargin));
 
 	-- DISPLAY FIELD SCAN MSG
 	if courseplay.fields.automaticScan and not courseplay.fields.allFieldsScanned then
@@ -313,15 +360,15 @@ function courseplay_manager:draw()
 		fsi.bgOverlay:render();
 
 		courseplay:setFontSettings({ 0.8, 0.8, 0.8, 1 }, true, 'left');
-		renderText(fsi.lineX, fsi.line1Y - 0.001, 0.021, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
+		renderText(fsi.lineX, fsi.line1Y - 0.001, courseplay.hud.fontSizes.fieldScanTitle, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
 		courseplay:setFontSettings('shadow', true, 'left');
-		renderText(fsi.lineX, fsi.line1Y,         0.021, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
+		renderText(fsi.lineX, fsi.line1Y,         courseplay.hud.fontSizes.fieldScanTitle, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
 
 		local str2 = courseplay:loc('COURSEPLAY_SCANNING_FIELD_NMB'):format(courseplay.fields.curFieldScanIndex, g_currentMission.fieldDefinitionBase.numberOfFields);
 		courseplay:setFontSettings({ 0.8, 0.8, 0.8, 1 }, false, 'left');
-		renderText(fsi.lineX, fsi.line2Y - 0.001, 0.018, str2);
+		renderText(fsi.lineX, fsi.line2Y - 0.001, courseplay.hud.fontSizes.fieldScanData, str2);
 		courseplay:setFontSettings('shadow', false, 'left');
-		renderText(fsi.lineX, fsi.line2Y,         0.018, str2);
+		renderText(fsi.lineX, fsi.line2Y,         courseplay.hud.fontSizes.fieldScanData, str2);
 
 		local rotationStep = math.floor(g_currentMission.time / self.fieldScanInfo.rotationTime);
 		if rotationStep > fsi.loadRotStep then
@@ -370,11 +417,11 @@ function courseplay_manager:mouseEvent(posX, posY, isDown, isUp, mouseKey)
 	if (isDown or isUp) and mouseKey == courseplay.inputBindings.mouse.COURSEPLAY_MOUSEACTION.buttonId and courseplay:mouseIsInArea(posX, posY, area.x1, area.x2, area.y1, area.y2) then
 		if courseplay.globalInfoText.hasContent then
 			for i,button in pairs(self.buttons.globalInfoText) do
-				if button.show and courseplay:mouseIsOnButton(posX, posY, button) then
-					button.isClicked = isDown;
+				if button.show and button:getHasMouse(posX, posY) then
+					button:setClicked(isDown);
 					if isUp then
 						local sourceVehicle = g_currentMission.controlledVehicle or button.parameter;
-						courseplay.button:handleMouseClick(sourceVehicle, button);
+						button:handleMouseClick(sourceVehicle);
 					end;
 					break;
 				end;
@@ -391,8 +438,8 @@ function courseplay_manager:mouseEvent(posX, posY, isDown, isUp, mouseKey)
 			self.playerOnFootMouseEnabled = false;
 			if courseplay.globalInfoText.hasContent then --if a button was hovered when deactivating the cursor, deactivate hover state
 				for _,button in pairs(self.buttons.globalInfoText) do
-					button.isClicked = false;
-					button.isHovered = false;
+					button:setClicked(false);
+					button:setHovered(false);
 				end;
 			end;
 			if not self.wasPlayerFrozen then
@@ -405,26 +452,69 @@ function courseplay_manager:mouseEvent(posX, posY, isDown, isUp, mouseKey)
 	--HOVER
 	elseif not isDown and not isUp and courseplay.globalInfoText.hasContent --[[and posX > area.x1 * 0.9 and posX < area.x2 * 1.1 and posY > area.y1 * 0.9 and posY < area.y2 * 1.1]] then
 		for _,button in pairs(self.buttons.globalInfoText) do
-			button.isClicked = false;
+			button:setClicked(false);
 			if button.show and not button.isHidden then
-				button.isHovered = false;
-				if courseplay:mouseIsOnButton(posX, posY, button) then
-					button.isClicked = false;
-					button.isHovered = true;
+				button:setHovered(false);
+				if courseplay.button.getHasMouse(button, posX, posY) then
+					button:setClicked(false);
+					button:setHovered(true);
 				end;
 			end;
 		end;
 	end;
 end;
 
+function courseplay_manager:fieldScanDialogueCallback(setActive)
+	courseplay.fields.automaticScan = setActive;
+	local file = loadXMLFile('courseplayFile', courseplay.cpXmlFilePath);
+	if file and file ~= 0 then
+		setXMLBool(file, 'XML.courseplayFields#automaticScan', setActive);
+		saveXMLFile(file);
+		delete(file);
+	end;
+	g_gui:showGui('');
+end;
+
+function courseplay_manager:wagesDialogueCallback(setActive)
+	courseplay.wagesActive = setActive;
+	local file = loadXMLFile('courseplayFile', courseplay.cpXmlFilePath);
+	if file and file ~= 0 then
+		setXMLBool(file, 'XML.courseplayWages#active', setActive);
+		saveXMLFile(file);
+		delete(file);
+	end;
+	g_gui:showGui('');
+end;
+
 function courseplay_manager:update(dt)
+	if g_gui.currentGui ~= nil and g_gui.currentGuiName ~= 'inputCourseNameDialogue' then
+		return;
+	end;
+
 	if self.firstRun then
-		courseplay.moreRealisticInstalled = RealisticUtils ~= nil and RealisticUtils.getFruitInfosV2 ~= nil;
-		courseplay.moreRealisticVersion = courseplay:getMoreRealisticVersion();
 		courseplay:addCpNilTempFillLevelFunction();
 
 		self.firstRun = false;
 	end;
+
+	-- Field scan, wages yes/no dialogue -START-
+	if not g_currentMission.paused and g_gui.currentGui == nil then
+		if self.showFieldScanYesNoDialogue then
+			local yesNoDialogue = g_gui:showGui('YesNoDialog');
+			yesNoDialogue.target.titleElement:setText('Courseplay');
+			yesNoDialogue.target:setText(courseplay:loc('COURSEPLAY_YES_NO_FIELDSCAN'));
+			yesNoDialogue.target:setCallbacks(self.fieldScanDialogueCallback, self);
+			self.showFieldScanYesNoDialogue = false;
+		elseif self.showWagesYesNoDialogue then
+			local yesNoDialogue = g_gui:showGui('YesNoDialog');
+			yesNoDialogue.target.titleElement:setText('Courseplay');
+			local txt = courseplay:loc('COURSEPLAY_YES_NO_WAGES'):format(g_i18n:formatMoney(g_i18n:getCurrency(courseplay.wagePerHour * courseplay.wageDifficultyMultiplier), 2));
+			yesNoDialogue.target:setText(txt);
+			yesNoDialogue.target:setCallbacks(self.wagesDialogueCallback, self);
+			self.showWagesYesNoDialogue = false;
+		end;
+	end;
+	-- Field scan, wages yes/n dialogue - END -
 
 	if g_currentMission.controlledVehicle == nil then
 		if self.playerOnFootMouseEnabled then
@@ -443,22 +533,27 @@ function courseplay_manager:update(dt)
 	if courseplay.fields.automaticScan and not courseplay.fields.allFieldsScanned then
 		courseplay.fields:setAllFieldEdges();
 	end;
+
+	-- REAL TIME MINUTE CHANGER
+	if not g_currentMission.paused and courseplay.wagesActive and g_server ~= nil then -- TODO: if there are more items to be dealt with every 10 secs, remove the "wagesActive" restriction
+		if self.realTime10SecsTimer < 10000 then
+			self.realTime10SecsTimer = self.realTime10SecsTimer + dt;
+		else
+			self:realTime10SecsChanged();
+			self.realTime10SecsTimer = self.realTime10SecsTimer - 10000;
+		end;
+	end;
 end;
 
-function courseplay_manager:updateTick(dt)
-end;
-
-function courseplay_manager:keyEvent()
-end
+function courseplay_manager:keyEvent() end;
 
 function courseplay_manager:load_courses()
 	--print("courseplay_manager:load_courses()");
 	courseplay:debug('loading courses by courseplay manager', 8);
 
 	local finish_all = false;
-	local savegame = g_careerScreen.savegames[g_careerScreen.selectedIndex];
-	if savegame ~= nil then
-		local filePath = savegame.savegameDirectory .. "/courseplay.xml";
+	if courseplay.cpXmlFilePath then
+		local filePath = courseplay.cpXmlFilePath;
 
 		if fileExists(filePath) then
 			local cpFile = loadXMLFile("courseFile", filePath);
@@ -527,9 +622,10 @@ function courseplay_manager:load_courses()
 						crossing = crossing == 1 or wpNum == 1;
 						wait = wait == 1;
 						rev = rev == 1;
-
-						if speed == 0 then
-							speed = nil
+						
+						--is it a old savegame with old speeds ?
+						if math.ceil(speed) ~= speed then
+							speed = math.ceil(speed*3600)							
 						end
 
 						--generated not needed, since true or false are loaded from file
@@ -654,14 +750,14 @@ function courseplay_manager:load_courses()
 						
 			delete(cpFile);
 		else
-			--print("\t \"courseplay.xml\" missing from \"savegame" .. g_careerScreen.selectedIndex .. "\" folder");
+			-- print(('\t"courseplay.xml" missing at %q'):format(tostring(courseplay.cpXmlFilePath);
 		end; --END if fileExists
 		
 		courseplay:debug(tableShow(g_currentMission.cp_sorted.item, "cp_sorted.item", 8), 8);
 
 		return g_currentMission.cp_courses;
 	else
-		print("Error: [Courseplay] current savegame could not be found.");
+		print(('Error: [Courseplay] current savegame could not be found at %q.'):format(courseplay.cpXmlFilePath));
 	end; --END if savegame ~= nil
 
 	return nil;
@@ -677,7 +773,7 @@ function courseplay_manager:severCombineTractorConnection(vehicle, callDelete)
 			local combine = vehicle;
 			-- remove this combine as savedCombine from all tractors
 			for i,tractor in pairs(g_currentMission.steerables) do
-				if tractor.cp and tractor.cp.savedCombine and tractor.cp.savedCombine == combine then
+				if tractor.cp and tractor.cp.savedCombine and tractor.cp.savedCombine == combine and tractor.cp.hasCourseplaySpec  then
 					courseplay:debug(('\ttractor %q: savedCombine=%q --> removeSavedCombineFromTractor()'):format(nameNum(tractor), nameNum(combine)), 4);
 					courseplay:removeSavedCombineFromTractor(tractor);
 				end;
@@ -729,17 +825,20 @@ function courseplay_manager:minuteChanged()
 	-- WEATHER
 	local env = g_currentMission.environment;
 	courseplay.lightsNeeded = env.needsLights or (env.dayTime >= nightStart or env.dayTime <= dayStart) or env.currentRain ~= nil or env.curRain ~= nil or (env.lastRainScale > 0.1 and env.timeSinceLastRain < 30);
+end;
 
+function courseplay_manager:realTime10SecsChanged()
 	-- WAGES
 	if courseplay.wagesActive and g_server ~= nil then
 		local totalWages = 0;
-		for vehicleNum, vehicle in ipairs(courseplay.totalCoursePlayers) do
-			if vehicle.drive and not vehicle.isHired then
+		for vehicleNum, vehicle in pairs(courseplay.activeCoursePlayers) do
+			if vehicle:getIsCourseplayDriving() and not vehicle.isHired then
 				totalWages = totalWages + courseplay.wagePerMin;
 			end;
 		end;
 		if totalWages > 0 then
-			g_currentMission:addSharedMoney(-totalWages * courseplay.wageDifficultyMultiplier, 'wagePayment');
+			-- TODO (Jakob): does addSharedMoney already include the currency factor, or do we have to calculate it before passing it?
+			g_currentMission:addSharedMoney(-totalWages * courseplay.wageDifficultyMultiplier / 6, 'wagePayment'); -- divide by 6 to get wage per 10 secs
 		end;
 	end;
 end;
@@ -886,7 +985,7 @@ function CourseplayJoinFixEvent:readStream(streamId, connection)
 				local wait = streamDebugReadBool(streamId)
 				local rev = streamDebugReadBool(streamId)
 				local crossing = streamDebugReadBool(streamId)
-				local speeed = streamDebugReadInt32(streamId)
+				local speed = streamDebugReadInt32(streamId)
 
 				local generated = streamDebugReadBool(streamId)
 				local dir = streamDebugReadString(streamId)
