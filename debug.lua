@@ -46,9 +46,9 @@ function courseplay:setUpDebugChannels()
 		data.width  = dbgW;
 		data.height = dbgH;
 		data.posX = dbgMinX + ((i - 1) * (dbgW + dbgMarginX));
-		data.posY = courseplay.hud.linesPosY[6] - 0.004;
+		data.posY = courseplay.hud.linesPosY[8] - 0.004;
 		data.textPosX = data.posX + (dbgW * 0.5);
-		data.textPosY = courseplay.hud.linesPosY[6];
+		data.textPosY = courseplay.hud.linesPosY[8];
 
 		courseplay.debugButtonPosData[i] = data;
 	end;
@@ -94,7 +94,8 @@ function tableShow(t, name, channel, indent, maxDepth)
 
 	local function basicSerialize(o)
 		local so = tostring(o);
-		if type(o) == 'function' then
+		local oType = type(o);
+		if oType == 'function' then
 			local info = debug.getinfo(o, 'S')
 			-- info.name is nil because o is not a calling level
 			if info.what == 'C' then
@@ -103,12 +104,14 @@ function tableShow(t, name, channel, indent, maxDepth)
 				-- the information is defined in a script
 				return ('"%s, defined in %s (lines %d-%d)"'):format(so, info.source, info.linedefined, info.lastlinedefined);
 			end
-		elseif type(o) == 'number' then
+		elseif oType == 'number' then
 			return so;
+		elseif oType == 'boolean' then
+			return ('%s'):format(so);
 		else
 			return ('%q'):format(so);
-		end
-	end
+		end;
+	end;
 
 	local function addToCart(value, name, indent, saved, field, curDepth)
 		indent = indent or ''
@@ -161,7 +164,7 @@ function tableShow(t, name, channel, indent, maxDepth)
 	addToCart(t, name, indent, nil, nil, depth + 1)
 	-- return cart .. autoref
 	print(autoref);
-	return ('%s %s -END- %s'):format(('#'):rep(40), name, ('#'):rep(40));
+	return ('-- %s %s -END- %s --'):format(('#'):rep(40), name, ('#'):rep(40));
 end;
 
 function eval(str)

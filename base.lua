@@ -95,8 +95,11 @@ function courseplay:load(xmlFile)
 
 
 
-	-- ai mode: 1 abfahrer, 2 kombiniert
-	self.cp.mode = 1
+	-- CP mode
+	self.cp.mode = 1;
+	if self.cp.isCombine or self.cp.isChopper or self.cp.isHarvesterSteerable or self.cp.isWoodHarvester or self.cp.isWoodForwarder then
+		self.cp.mode = 5;
+	end;
 	self.cp.modeState = 0
 	self.cp.mode2nextState = nil;
 	self.cp.startWork = nil
@@ -411,6 +414,13 @@ function courseplay:load(xmlFile)
 			selectedFieldNumExists = false;
 		};
 	};
+
+	-- WOOD CUTTING: increase max cut length
+	if courseplay.isDeveloper then
+		self.cutLengthMax = 15;
+		self.cutLengthStep = 1;
+	end;
+
 
 	self.cp.mouseCursorActive = false;
 
@@ -808,15 +818,19 @@ function courseplay:load(xmlFile)
 	courseplay.button:new(self, 6, { 'iconSprite.png', 'navPlus' },  'changeWaitTime',  5, courseplay.hud.buttonPosX[2], courseplay.hud.linesButtonPosY[5], w16px, h16px, 5,  10, false);
 	courseplay.button:new(self, 6, nil, 'changeWaitTime', 5, mouseWheelArea.x, courseplay.hud.linesButtonPosY[5], mouseWheelArea.w, mouseWheelArea.h, 5, 10, true, true);
 
+	if courseplay.ingameMapIconActive and courseplay.ingameMapIconShowTextLoaded then
+		courseplay.button:new(self, 6, nil, 'toggleIngameMapIconShowText', nil, courseplay.hud.infoBasePosX, courseplay.hud.linesPosY[6], courseplay.hud.visibleArea.width, 0.015, 7, nil, true);
+	end;
+
 	self.cp.hud.debugChannelButtons = {};
 	for dbg=1, courseplay.numDebugChannelButtonsPerLine do
 		local data = courseplay.debugButtonPosData[dbg];
 		local toolTip = courseplay.debugChannelsDesc[dbg];
 		self.cp.hud.debugChannelButtons[dbg] = courseplay.button:new(self, 6, 'iconSprite.png', 'toggleDebugChannel', dbg, data.posX, data.posY, data.width, data.height, nil, nil, nil, false, false, toolTip);
 	end;
-	courseplay.button:new(self, 6, { 'iconSprite.png', 'navUp' },   'changeDebugChannelSection', -1, courseplay.hud.buttonPosX[1], courseplay.hud.linesButtonPosY[6], w16px, h16px, 6, -1, true, false);
-	courseplay.button:new(self, 6, { 'iconSprite.png', 'navDown' }, 'changeDebugChannelSection',  1, courseplay.hud.buttonPosX[2], courseplay.hud.linesButtonPosY[6], w16px, h16px, 6,  1, true, false);
-	courseplay.button:new(self, 6, nil, 'changeDebugChannelSection', -1, mouseWheelArea.x, courseplay.hud.linesButtonPosY[6], mouseWheelArea.w, mouseWheelArea.h, 6, -1, true, true);
+	courseplay.button:new(self, 6, { 'iconSprite.png', 'navUp' },   'changeDebugChannelSection', -1, courseplay.hud.buttonPosX[1], courseplay.hud.linesButtonPosY[8], w16px, h16px, 8, -1, true, false);
+	courseplay.button:new(self, 6, { 'iconSprite.png', 'navDown' }, 'changeDebugChannelSection',  1, courseplay.hud.buttonPosX[2], courseplay.hud.linesButtonPosY[8], w16px, h16px, 8,  1, true, false);
+	courseplay.button:new(self, 6, nil, 'changeDebugChannelSection', -1, mouseWheelArea.x, courseplay.hud.linesButtonPosY[8], mouseWheelArea.w, mouseWheelArea.h, 8, -1, true, true);
 
 
 	-- ##################################################
@@ -873,7 +887,8 @@ function courseplay:load(xmlFile)
 	courseplay.button:new(self, 8, { 'iconSprite.png', 'navDown' }, 'changeHeadlandNumLanes',  -1, courseplay.hud.buttonPosX[2], courseplay.hud.linesButtonPosY[6], w16px, h16px, 6, nil, false);
 
 	-- generation action button
-	courseplay.button:new(self, 8, { 'iconSprite.png', 'generateCourse' }, 'generateCourse', nil, topIconsX[3], topIconsY, w24px, h24px, nil, nil, false);
+	local toolTip = 'Generate field course'; -- TODO: i18n
+	self.cp.hud.generateCourseButton = courseplay.button:new(self, 8, { 'iconSprite.png', 'generateCourse' }, 'generateCourse', nil, topIconsX[3], topIconsY, w24px, h24px, nil, nil, false, false, false, toolTip);
 
 
 	-- ##################################################
@@ -940,7 +955,7 @@ function courseplay:onLeave()
 		courseplay:setMouseCursor(self, false);
 	end
 
-	--hide visual i3D waypoint signs only when in vehicle
+	--hide visual i3D waypoint signs when not in vehicle
 	courseplay.utils.signs:setSignsVisibility(self, false);
 end
 
@@ -958,6 +973,8 @@ function courseplay:onEnter()
 end
 
 function courseplay:draw()
+	local isDriving = self:getIsCourseplayDriving();
+
 	--WORKWIDTH DISPLAY
 	if self.cp.workWidthChanged > self.timer and self.cp.mode ~= 7 then
 		courseplay:showWorkWidth(self);
@@ -977,82 +994,59 @@ function courseplay:draw()
 	end;
 
 
-	--KEYBOARD ACTIONS and HELP BUTTON TEXTS
-	--Note: located in draw() instead of update() so they're not displayed/executed for *all* vehicles but rather only for *self*
+	-- HELP BUTTON TEXTS
 	if self:getIsActive() and self.isEntered then
-		local kb = courseplay.inputBindings.keyboard;
-		local mouse = courseplay.inputBindings.mouse;
+		local modifierPressed = InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER);
 
-		if (self.cp.canDrive or not self.cp.hud.openWithMouse) and not InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER) then
-			g_currentMission:addHelpButtonText(courseplay:loc("COURSEPLAY_FUNCTIONS"), InputBinding.COURSEPLAY_MODIFIER);
+		if (self.cp.canDrive or not self.cp.hud.openWithMouse) and not modifierPressed then
+			g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_FUNCTIONS'), InputBinding.COURSEPLAY_MODIFIER);
 		end;
 
 		if self.cp.hud.show then
 			if self.cp.mouseCursorActive then
-				g_currentMission:addExtraPrintText(courseplay.inputBindings.mouse.COURSEPLAY_MOUSEACTION_SECONDARY.displayName .. ": " .. courseplay:loc("COURSEPLAY_MOUSEARROW_HIDE"));
+				g_currentMission:addHelpTextFunction(courseplay.drawMouseButtonHelp, self, courseplay_manager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_HIDE'));
 			else
-				g_currentMission:addExtraPrintText(courseplay.inputBindings.mouse.COURSEPLAY_MOUSEACTION_SECONDARY.displayName .. ": " .. courseplay:loc("COURSEPLAY_MOUSEARROW_SHOW"));
+				g_currentMission:addHelpTextFunction(courseplay.drawMouseButtonHelp, self, courseplay_manager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_SHOW'));
 			end;
 		end;
 
 		if self.cp.hud.openWithMouse then
 			if not self.cp.hud.show then
-				g_currentMission:addExtraPrintText(courseplay.inputBindings.mouse.COURSEPLAY_MOUSEACTION_SECONDARY.displayName .. ": " .. courseplay:loc("COURSEPLAY_HUD_OPEN"));
+				g_currentMission:addHelpTextFunction(courseplay.drawMouseButtonHelp, self, courseplay_manager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_HUD_OPEN'));
 			end;
 		else
-			if InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER) then
+			if modifierPressed then
 				if not self.cp.hud.show then
-					g_currentMission:addHelpButtonText(courseplay:loc("COURSEPLAY_HUD_OPEN"), InputBinding.COURSEPLAY_HUD);
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_HUD_OPEN'), InputBinding.COURSEPLAY_HUD);
 				else
-					g_currentMission:addHelpButtonText(courseplay:loc("COURSEPLAY_HUD_CLOSE"), InputBinding.COURSEPLAY_HUD);
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_HUD_CLOSE'), InputBinding.COURSEPLAY_HUD);
 				end;
-			end;
-
-			if InputBinding.hasEvent(InputBinding.COURSEPLAY_HUD_COMBINED) then
-				--courseplay:openCloseHud(self, not self.cp.hud.show);
-				self:setCourseplayFunc("openCloseHud", not self.cp.hud.show);
 			end;
 		end;
 
-		if self.cp.canDrive then
-			if self:getIsCourseplayDriving() then
-				if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP_COMBINED) then
-					self:setCourseplayFunc("stop", nil, false, 1);
-				elseif self.cp.HUD1wait and InputBinding.hasEvent(InputBinding.COURSEPLAY_CANCELWAIT_COMBINED) then
-					self:setCourseplayFunc('cancelWait', true, false, 1);
-				elseif self.cp.HUD1noWaitforFill and InputBinding.hasEvent(InputBinding.COURSEPLAY_DRIVENOW_COMBINED) then
-					self:setCourseplayFunc("setIsLoaded", true, false, 1);
+		if self.cp.canDrive and modifierPressed then
+			if isDriving then
+				g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_STOP_COURSE'), InputBinding.COURSEPLAY_START_STOP);
+				if self.cp.HUD1wait then
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_CONTINUE'), InputBinding.COURSEPLAY_CANCELWAIT);
 				end;
-
-				if InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER) then
-					g_currentMission:addHelpButtonText(courseplay:loc("COURSEPLAY_STOP_COURSE"), InputBinding.COURSEPLAY_START_STOP);
-					if self.cp.HUD1wait then
-						g_currentMission:addHelpButtonText(courseplay:loc("COURSEPLAY_CONTINUE"), InputBinding.COURSEPLAY_CANCELWAIT);
-					end;
-					if self.cp.HUD1noWaitforFill then
-						g_currentMission:addHelpButtonText(courseplay:loc("COURSEPLAY_DRIVE_NOW"), InputBinding.COURSEPLAY_DRIVENOW);
-					end;
+				if self.cp.HUD1noWaitforFill then
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_DRIVE_NOW'), InputBinding.COURSEPLAY_DRIVENOW);
 				end;
 			else
-				if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP_COMBINED) then
-					self:setCourseplayFunc("start", nil, false, 1);
-				end;
-
-				if InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER) then
-					g_currentMission:addHelpButtonText(courseplay:loc("COURSEPLAY_START_COURSE"), InputBinding.COURSEPLAY_START_STOP);
-				end;
+				g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_START_COURSE'), InputBinding.COURSEPLAY_START_STOP);
 			end;
 		end;
-	end; -- self:getIsActive() and self.isEntered
+	end;
 
 	--RENDER
 	courseplay:renderInfoText(self);
-	
+
 	if self:getIsActive() then
 		if self.cp.hud.show then
 			courseplay:setHudContent(self);
 			courseplay:renderHud(self);
-			if self.cp.distanceCheck and (self:getIsCourseplayDriving() or (not self.cp.canDrive and not self.cp.isRecording and not self.cp.recordingIsPaused)) then -- turn off findFirstWaypoint when driving or no course loaded
+			if self.cp.distanceCheck and (isDriving or (not self.cp.canDrive and not self.cp.isRecording and not self.cp.recordingIsPaused)) then -- turn off findFirstWaypoint when driving or no course loaded
 				courseplay:toggleFindFirstWaypoint(self);
 			end;
 
@@ -1063,9 +1057,34 @@ function courseplay:draw()
 		if self.cp.distanceCheck and #(self.Waypoints) > 1 then
 			courseplay:distanceCheck(self);
 		end;
-		courseplay:renderToolTip(self);
+		if self.isEntered and self.cp.toolTip ~= nil then
+			courseplay:renderToolTip(self);
+		end;
 	end;
 end; --END draw()
+
+function courseplay.drawMouseButtonHelp(self, posY, txt)
+	local xLeft = g_currentMission.hudHelpTextPosX1;
+	local xRight = g_currentMission.hudHelpTextPosX2;
+
+	local ovl = courseplay.inputBindings.mouse.overlaySecondary;
+	if ovl then
+		local h = (2.5 * g_currentMission.hudHelpTextSize);
+		local w = h / g_screenAspectRatio;
+		local y = posY - g_currentMission.hudHelpTextSize - g_currentMission.hudHelpTextLineSpacing*3;
+		ovl:setPosition(xLeft - w*0.2, y);
+		ovl:setDimension(w, h);
+		ovl:render();
+		xLeft = xLeft + w*0.6;
+	end;
+
+	posY = posY - g_currentMission.hudHelpTextSize - g_currentMission.hudHelpTextLineSpacing*2;
+	setTextAlignment(RenderText.ALIGN_RIGHT);
+	renderText(xRight, posY, g_currentMission.hudHelpTextSize, txt);
+
+	setTextAlignment(RenderText.ALIGN_LEFT);
+	renderText(xLeft, posY, g_currentMission.hudHelpTextSize, courseplay.inputBindings.mouse.secondaryTextI18n);
+end;
 
 function courseplay:showWorkWidth(vehicle)
 	local left =  vehicle.cp.workWidthDisplayPoints.left;
@@ -1102,9 +1121,34 @@ function courseplay:drawWaypointsLines(vehicle)
 	end;
 end;
 
--- is being called every loop
 function courseplay:update(dt)
-	if g_server ~= nil and (self:getIsCourseplayDriving() or self.cp.isRecording or self.cp.recordingIsPaused) then
+	local isDriving = self:getIsCourseplayDriving();
+
+	-- KEYBOARD EVENTS
+	if self:getIsActive() and self.isEntered and InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER) then
+		if self.cp.canDrive then
+			if isDriving then
+				if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP) then
+					self:setCourseplayFunc("stop", nil, false, 1);
+				elseif self.cp.HUD1wait and InputBinding.hasEvent(InputBinding.COURSEPLAY_CANCELWAIT) then
+					self:setCourseplayFunc('cancelWait', true, false, 1);
+				elseif self.cp.HUD1noWaitforFill and InputBinding.hasEvent(InputBinding.COURSEPLAY_DRIVENOW) then
+					self:setCourseplayFunc("setIsLoaded", true, false, 1);
+				end;
+			else
+				if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP) then
+					self:setCourseplayFunc("start", nil, false, 1);
+				end;
+			end;
+		end;
+
+		if not self.cp.openHudWithMouse and InputBinding.hasEvent(InputBinding.COURSEPLAY_HUD) then
+			self:setCourseplayFunc('openCloseHud', not self.cp.hud.show);
+		end;
+	end; -- self:getIsActive() and self.isEntered and modifierPressed
+
+
+	if g_server ~= nil and (isDriving or self.cp.isRecording or self.cp.recordingIsPaused) then
 		courseplay:setInfoText(self, nil);
 	end;
 
@@ -1118,7 +1162,7 @@ function courseplay:update(dt)
 	end;
 
 	-- we are in drive mode and single player /MP server
-	if self:getIsCourseplayDriving() and g_server ~= nil then
+	if isDriving and g_server ~= nil then
 		for refIdx,_ in pairs(courseplay.globalInfoText.msgReference) do
 			self.cp.hasSetGlobalInfoTextThisLoop[refIdx] = false;
 		end;
@@ -1143,7 +1187,7 @@ function courseplay:update(dt)
 	end
 
 	if g_server ~= nil then
-		if self:getIsCourseplayDriving() then
+		if isDriving then
 			local showDriveOnButton = false;
 			if self.cp.mode == 6 then
 				if self.cp.wait and (self.recordnumber == self.cp.stopWork or self.cp.lastRecordnumber == self.cp.stopWork) and self.cp.abortWork == nil and not self.cp.isLoaded and not isFinishingWork and self.cp.hasUnloadingRefillingCourse then
@@ -1182,7 +1226,7 @@ function courseplay:update(dt)
 			end
 			self:setCpVar('HUD0wantsCourseplayer', combine.cp.wantsCourseplayer);
 			self:setCpVar('HUD0combineForcedSide', combine.cp.forcedSide);
-			self:setCpVar('HUD0isManual', not self:getIsCourseplayDriving() and not combine.isAIThreshing);
+			self:setCpVar('HUD0isManual', not isDriving and not combine.isAIThreshing);
 			self:setCpVar('HUD0turnStage', self.cp.turnStage);
 			local tractor = combine.courseplayers[1]
 			if tractor ~= nil then
@@ -1316,11 +1360,9 @@ function courseplay:setToolTip(vehicle, text)
 end;
 
 function courseplay:renderToolTip(vehicle)
-	if vehicle.isEntered and vehicle.cp.toolTip ~= nil then
-		courseplay:setFontSettings('white', false, 'left');
-		renderText(courseplay.hud.col1posX + vehicle.cp.hud.toolTipIcon.width * 1.25, courseplay.hud.infoBasePosY + 0.012, courseplay.hud.fontSizes.infoText, vehicle.cp.toolTip);
-		vehicle.cp.hud.toolTipIcon:render();
-	end;
+	courseplay:setFontSettings('white', false, 'left');
+	renderText(courseplay.hud.col1posX + vehicle.cp.hud.toolTipIcon.width * 1.25, courseplay.hud.infoBasePosY + 0.012, courseplay.hud.fontSizes.infoText, vehicle.cp.toolTip);
+	vehicle.cp.hud.toolTipIcon:render();
 end;
 
 

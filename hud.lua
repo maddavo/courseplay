@@ -501,7 +501,7 @@ function courseplay.hud:loadPage(vehicle, page)
 
 		-- Open hud key
 		vehicle.cp.hud.content.pages[6][2][1].text = courseplay:loc('COURSEPLAY_OPEN_HUD_MODE');
-		vehicle.cp.hud.content.pages[6][2][2].text = vehicle.cp.hud.openWithMouse and courseplay.inputBindings.mouse.COURSEPLAY_MOUSEACTION_SECONDARY.displayName or courseplay.inputBindings.keyboard.COURSEPLAY_HUD_COMBINED.displayName;
+		vehicle.cp.hud.content.pages[6][2][2].text = vehicle.cp.hud.openWithMouse and courseplay.inputBindings.mouse.secondaryTextI18n or courseplay.inputBindings.keyboard.openCloseHudTextI18n;
 
 		-- Waypoint mode
 		vehicle.cp.hud.content.pages[6][3][1].text = courseplay:loc('COURSEPLAY_WAYPOINT_MODE');
@@ -525,8 +525,14 @@ function courseplay.hud:loadPage(vehicle, page)
 			vehicle.cp.hud.content.pages[6][5][2].text = str;
 		end;
 
+		-- Ingame map icon text
+		if courseplay.ingameMapIconActive and courseplay.ingameMapIconShowTextLoaded then
+			vehicle.cp.hud.content.pages[6][6][1].text = courseplay:loc('COURSEPLAY_INGAMEMAP_ICONS_SHOWTEXT');
+			vehicle.cp.hud.content.pages[6][6][2].text = courseplay.ingameMapIconShowText and courseplay:loc('COURSEPLAY_ACTIVATED') or courseplay:loc('COURSEPLAY_DEACTIVATED');
+		end;
+
 		-- Debug channels
-		vehicle.cp.hud.content.pages[6][6][1].text = courseplay:loc('COURSEPLAY_DEBUG_CHANNELS');
+		vehicle.cp.hud.content.pages[6][8][1].text = courseplay:loc('COURSEPLAY_DEBUG_CHANNELS');
 
 
 	--PAGE 7: DRIVING SETTINGS

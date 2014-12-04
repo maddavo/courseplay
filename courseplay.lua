@@ -144,7 +144,7 @@ function courseplay:initialize()
 
 	courseplay:setVersionData();
 
-	courseplay:setInputBindings();
+	courseplay.inputBindings.updateInputButtonData();
 
 	courseplay:setGlobalData();
 
@@ -189,6 +189,7 @@ function courseplay:setGlobalData()
 	local customPosX, customPosY;
 	local fieldsAutomaticScan, fieldsDebugScan, fieldsDebugCustomLoad, fieldsCustomScanStep, fieldsOnlyScanOwnedFields = true, false, false, nil, true;
 	local wagesActive, wagesAmount = true, 1500;
+	local ingameMapIconActive, ingameMapIconShowName, ingameMapIconShowCourse = true, true, true;
 
 	if courseplay.cpXmlFilePath and fileExists(courseplay.cpXmlFilePath) then
 		local cpFile = loadXMLFile('cpFile', courseplay.cpXmlFilePath);
@@ -211,6 +212,13 @@ function courseplay:setGlobalData()
 		if hasXMLProperty(cpFile, wagesKey) then
 			wagesActive = Utils.getNoNil(getXMLBool(cpFile, wagesKey .. '#active'), wagesActive);
 			wagesAmount = Utils.getNoNil(getXMLInt(cpFile, wagesKey .. '#wagePerHour'), wagesAmount);
+		end;
+
+		local ingameMapKey = 'XML.courseplayIngameMap';
+		if hasXMLProperty(cpFile, ingameMapKey) then
+			ingameMapIconActive		= Utils.getNoNil(getXMLBool(cpFile, ingameMapKey .. '#active'),		ingameMapIconActive);
+			ingameMapIconShowName	= Utils.getNoNil(getXMLBool(cpFile, ingameMapKey .. '#showName'),	ingameMapIconShowName);
+			ingameMapIconShowCourse	= Utils.getNoNil(getXMLBool(cpFile, ingameMapKey .. '#showCourse'),	ingameMapIconShowCourse);
 		end;
 
 		delete(cpFile);
@@ -477,7 +485,6 @@ function courseplay:setGlobalData()
 	courseplay.globalInfoText.backgroundPosY = courseplay.globalInfoText.posY;
 	courseplay.globalInfoText.textPosX = courseplay.globalInfoText.backgroundPosX + courseplay.globalInfoText.backgroundPadding;
 	courseplay.globalInfoText.content = {};
-	courseplay.globalInfoText.hasContent = false;
 	courseplay.globalInfoText.vehicleHasText = {};
 	courseplay.globalInfoText.levelColors = {
 		[-2] = courseplay.hud.colors.closeRed;
@@ -601,6 +608,13 @@ function courseplay:setGlobalData()
 	courseplay.wagesActive = wagesActive;
 	courseplay.wagePerHour = wagesAmount;
 	courseplay.wagePerMin  = wagesAmount / 60;
+
+	-- INGAME MAP
+	courseplay.ingameMapIconActive		= ingameMapIconActive;
+	courseplay.ingameMapIconShowName	= ingameMapIconShowName;
+	courseplay.ingameMapIconShowCourse	= ingameMapIconShowCourse;
+	courseplay.ingameMapIconShowText	= ingameMapIconShowName or ingameMapIconShowCourse;
+	courseplay.ingameMapIconShowTextLoaded = courseplay.ingameMapIconShowText;
 
 	--print("\t### Courseplay: setGlobalData() finished");
 
