@@ -48,11 +48,11 @@ function courseplay:reload_courses(self, use_real_id)
 	end
 end
 
-function courseplay:reinit_courses(self)
+function CpManager:reinitializeCourses()
 	if g_currentMission.cp_courses == nil then
 		courseplay:debug("cp_courses is empty", 8)
 		if g_server ~= nil then
-			courseplay_manager:load_courses();
+			CpManager:load_courses();
 		end
 		return
 	end
@@ -72,7 +72,7 @@ end
 
 function courseplay:load_course(self, id, useRealId, addCourseAtEnd)
 	-- global array for courses, no refreshing needed any more
-	courseplay:reinit_courses(self);
+	CpManager:reinitializeCourses();
 
 	if addCourseAtEnd == nil then addCourseAtEnd = false; end;
 
@@ -219,7 +219,7 @@ function courseplay:load_course(self, id, useRealId, addCourseAtEnd)
 			courseplay:setModeState(self, 1);
 			-- print(('%s [%s(%d)]: load_course() -> set modeState to 1'):format(nameNum(self), curFile, debug.getinfo(1).currentline)); -- DEBUG140301
 		end;]]
-		courseplay.utils.signs:updateWaypointSigns(self, "current");
+		courseplay.signs:updateWaypointSigns(self, "current");
 
 		self.cp.hasGeneratedCourse = false;
 		courseplay:validateCourseGenerationData(self);
@@ -388,7 +388,7 @@ function courseplay:delete_sorted_item(vehicle, index)
 	g_currentMission.cp_sorted = courseplay.courses.sort()
 	courseplay.courses.save_all()
 	courseplay.settings.setReloadCourseItems()
-	courseplay.utils.signs:updateWaypointSigns(vehicle);
+	courseplay.signs:updateWaypointSigns(vehicle);
 end
 
 function courseplay.courses.save_parent(type, id)
@@ -589,32 +589,31 @@ function courseplay.courses.delete_save_all(self)
 -- saves courses to xml-file
 -- opening the file with io.open will delete its content...
 	if g_server ~= nil then
-		if courseplay.cpXmlFilePath then
-			local file = io.open(courseplay.cpXmlFilePath, "w");
+		if CpManager.cpXmlFilePath then
+			local file = io.open(CpManager.cpXmlFilePath, "w");
 			if file ~= nil then
-				file:write('<?xml version="1.0" encoding="utf-8" standalone="no" ?>\n<XML>\n');
-				file:write(('\t<courseplayHud posX="%.3f" posY="%.3f" />\n'):format(courseplay.hud.infoBasePosX, courseplay.hud.infoBasePosY));
-				file:write(('\t<courseplayFields automaticScan=%q onlyScanOwnedFields=%q debugScannedFields=%q debugCustomLoadedFields=%q scanStep="%d" />\n'):format(tostring(courseplay.fields.automaticScan), tostring(courseplay.fields.onlyScanOwnedFields), tostring(courseplay.fields.debugScannedFields), tostring(courseplay.fields.debugCustomLoadedFields), courseplay.fields.scanStep));
-				file:write(('\t<courseplayWages active=%q wagePerHour="%d" />\n'):format(tostring(courseplay.wagesActive), courseplay.wagePerHour));
-				file:write(('\t<courseplayIngameMap active=%q showName=%q showCourse=%q />\n'):format(tostring(courseplay.ingameMapIconActive), tostring(courseplay.ingameMapIconShowName),tostring(courseplay.ingameMapIconShowCourse)));
+				-- header
+				local header = '';
+				header = header .. '<?xml version="1.0" encoding="utf-8" standalone="no" ?>\n<XML>\n';
+				header = header .. ('\t<courseplayHud posX="%.3f" posY="%.3f" />\n'):format(courseplay.hud.infoBasePosX, courseplay.hud.infoBasePosY);
+				header = header .. ('\t<courseplayFields automaticScan=%q onlyScanOwnedFields=%q debugScannedFields=%q debugCustomLoadedFields=%q scanStep="%d" />\n'):format(tostring(courseplay.fields.automaticScan), tostring(courseplay.fields.onlyScanOwnedFields), tostring(courseplay.fields.debugScannedFields), tostring(courseplay.fields.debugCustomLoadedFields), courseplay.fields.scanStep);
+				header = header .. ('\t<courseplayWages active=%q wagePerHour="%d" />\n'):format(tostring(CpManager.wagesActive), CpManager.wagePerHour);
+				header = header .. ('\t<courseplayIngameMap active=%q showName=%q showCourse=%q />\n'):format(tostring(CpManager.ingameMapIconActive), tostring(CpManager.ingameMapIconShowName),tostring(CpManager.ingameMapIconShowCourse));
+
+				file:write(header);
 
 				-- folders
-				file:write('\t<folders>\n')
+				local foldersTxt = '\t<folders>\n';
 				for i,folder in pairs(g_currentMission.cp_folders) do
-					file:write('\t\t<folder name="' .. folder.name .. '" id="' .. folder.id .. '" parent="' .. folder.parent ..'" />\n');
+					foldersTxt = foldersTxt .. '\t\t<folder name="' .. folder.name .. '" id="' .. folder.id .. '" parent="' .. folder.parent ..'" />\n';
 				end
-				file:write('\t</folders>\n');
+				foldersTxt = foldersTxt .. '\t</folders>\n';
+				file:write(foldersTxt);
 
-				-- course reference
-				--[[file:write('\t<courseReference>\n');
-				for i,course in pairs(g_currentMission.cp_courses) do
-					file:write(('\t\t<course name=%q id=%q numWaypoints=%q parent=%q'):format(tostring(course.name), tostring(course.id), tostring(#course.waypoints), tostring(course.parent)));
-				end;
-				file:write('\t</courseReference>\n');
-				]]
+				-- courses
 				file:write('\t<courses>\n')
 				for i,course in pairs(g_currentMission.cp_courses) do
-					file:write('\t\t<course name="' .. course.name .. '" id="' .. course.id .. '" numWaypoints="' .. #(course.waypoints) .. '" parent="' .. course.parent ..'">\n');
+					local courseTxt = '\t\t<course name="' .. course.name .. '" id="' .. course.id .. '" numWaypoints="' .. #(course.waypoints) .. '" parent="' .. course.parent ..'">\n';
 					for wpNum,wp in ipairs(course.waypoints) do
 						local wpContent = '\t\t\t<waypoint' .. wpNum .. ' ';
 						wpContent = wpContent .. 'pos="' .. tostring(Utils.getNoNil(courseplay:round(wp.cx, 4), 0)) .. ' ' .. tostring(Utils.getNoNil(courseplay:round(wp.cz, 4), 0)) .. '" ';
@@ -633,14 +632,16 @@ function courseplay.courses.delete_save_all(self)
 						wpContent = wpContent .. 'generated="' .. tostring(Utils.getNoNil(wp.generated, false)) .. '" ';
 						wpContent = wpContent .. '/>\n';
 
-						file:write(wpContent);
+						courseTxt = courseTxt .. wpContent;
 					end;
-					file:write('\t\t</course>\n');
+					courseTxt = courseTxt .. '\t\t</course>\n';
+
+					file:write(courseTxt);
 				end;
 				file:write('\t</courses>\n</XML>');
 				file:close();
 			else
-				print("Error: Courseplay courses could not be saved to " .. tostring(courseplay.cpXmlFilePath)); 
+				print("COURSEPLAY ERROR: courses could not be saved to " .. tostring(CpManager.cpXmlFilePath)); 
 			end;
 		end;
 	end;
@@ -674,7 +675,7 @@ function courseplay.courses.openOrCreateXML(forceCreation)
 	forceCreation = forceCreation or false
 	
 	local File;
-	local filePath = courseplay.cpXmlFilePath;
+	local filePath = CpManager.cpXmlFilePath;
 	if filePath ~= nil then
 		if fileExists(filePath) and (not forceCreation) then
 			File = loadXMLFile("courseFile", filePath)

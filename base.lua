@@ -142,7 +142,7 @@ function courseplay:load(xmlFile)
 		crossing = {};
 		current = {};
 	};
-	courseplay.utils.signs:updateWaypointSigns(self);
+	courseplay.signs:updateWaypointSigns(self);
 
 	self.cp.numCourses = 1;
 	self.cp.numWaypoints = 0;
@@ -193,7 +193,7 @@ function courseplay:load(xmlFile)
 			end;
 		end;
 	else
-		courseplay.trafficCollisionIgnoreList[self.aiTrafficCollisionTrigger] = true; --add AI traffic collision trigger to global ignore list
+		CpManager.trafficCollisionIgnoreList[self.aiTrafficCollisionTrigger] = true; --add AI traffic collision trigger to global ignore list
 	end;
 	if self.aiTrafficCollisionTrigger == nil and getNumOfChildren(self.rootNode) > 0 then
 		if getChild(self.rootNode, "trafficCollisionTrigger") ~= 0 then
@@ -293,14 +293,14 @@ function courseplay:load(xmlFile)
 			end;
 			addTrigger(newTrigger, 'cpOnTrafficCollisionTrigger', self);
 			self.cp.trafficCollisionTriggerToTriggerIndex[newTrigger] = i;
-			courseplay.trafficCollisionIgnoreList[newTrigger] = true; --add all traffic collision triggers to global ignore list
+			CpManager.trafficCollisionIgnoreList[newTrigger] = true; --add all traffic collision triggers to global ignore list
 			self.cp.collidingObjects[i] = {};
 			self.cp.numCollidingObjects[i] = 0;
 		end;
 	end;
 
-	if not courseplay.trafficCollisionIgnoreList[g_currentMission.terrainRootNode] then
-		courseplay.trafficCollisionIgnoreList[g_currentMission.terrainRootNode] = true;
+	if not CpManager.trafficCollisionIgnoreList[g_currentMission.terrainRootNode] then
+		CpManager.trafficCollisionIgnoreList[g_currentMission.terrainRootNode] = true;
 	end;
 
 
@@ -395,7 +395,7 @@ function courseplay:load(xmlFile)
 		maxPointDistance = 7.25;
 	};
 	link(getRootNode(), self.cp.headland.tg);
-	if courseplay.isDeveloper then
+	if CpManager.isDeveloper then
 		self.cp.headland.maxNumLanes = 50;
 	end;
 
@@ -416,7 +416,7 @@ function courseplay:load(xmlFile)
 	};
 
 	-- WOOD CUTTING: increase max cut length
-	if courseplay.isDeveloper then
+	if CpManager.isDeveloper then
 		self.cutLengthMax = 15;
 		self.cutLengthStep = 1;
 	end;
@@ -616,7 +616,7 @@ function courseplay:load(xmlFile)
 
 	courseplay.button:new(self, 'global', { 'iconSprite.png', 'save' }, 'showSaveCourseForm', 'course', topIconsX[2], topIconsY, w24px, h24px);
 
-	if courseplay.isDeveloper then
+	if CpManager.isDeveloper then
 		self.cp.toggleDrawWaypointsLinesButton = courseplay.button:new(self, 'global', { 'iconSprite.png', 'eye' }, 'toggleDrawWaypointsLines', nil, courseplay.hud.col1posX, topIconsY, w24px, h24px, nil, nil, false, false, true);
 	end;
 
@@ -956,7 +956,7 @@ function courseplay:onLeave()
 	end
 
 	--hide visual i3D waypoint signs when not in vehicle
-	courseplay.utils.signs:setSignsVisibility(self, false);
+	courseplay.signs:setSignsVisibility(self, false);
 end
 
 function courseplay:onEnter()
@@ -969,7 +969,7 @@ function courseplay:onEnter()
 	end;
 
 	--show visual i3D waypoint signs only when in vehicle
-	courseplay.utils.signs:setSignsVisibility(self);
+	courseplay.signs:setSignsVisibility(self);
 end
 
 function courseplay:draw()
@@ -1004,15 +1004,15 @@ function courseplay:draw()
 
 		if self.cp.hud.show then
 			if self.cp.mouseCursorActive then
-				g_currentMission:addHelpTextFunction(courseplay.drawMouseButtonHelp, self, courseplay_manager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_HIDE'));
+				g_currentMission:addHelpTextFunction(CpManager.drawMouseButtonHelp, self, CpManager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_HIDE'));
 			else
-				g_currentMission:addHelpTextFunction(courseplay.drawMouseButtonHelp, self, courseplay_manager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_SHOW'));
+				g_currentMission:addHelpTextFunction(CpManager.drawMouseButtonHelp, self, CpManager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_SHOW'));
 			end;
 		end;
 
 		if self.cp.hud.openWithMouse then
 			if not self.cp.hud.show then
-				g_currentMission:addHelpTextFunction(courseplay.drawMouseButtonHelp, self, courseplay_manager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_HUD_OPEN'));
+				g_currentMission:addHelpTextFunction(CpManager.drawMouseButtonHelp, self, CpManager.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_HUD_OPEN'));
 			end;
 		else
 			if modifierPressed then
@@ -1044,8 +1044,8 @@ function courseplay:draw()
 
 	if self:getIsActive() then
 		if self.cp.hud.show then
-			courseplay:setHudContent(self);
-			courseplay:renderHud(self);
+			courseplay.hud:setContent(self);
+			courseplay.hud:renderHud(self);
 			if self.cp.distanceCheck and (isDriving or (not self.cp.canDrive and not self.cp.isRecording and not self.cp.recordingIsPaused)) then -- turn off findFirstWaypoint when driving or no course loaded
 				courseplay:toggleFindFirstWaypoint(self);
 			end;
@@ -1063,29 +1063,6 @@ function courseplay:draw()
 	end;
 end; --END draw()
 
-function courseplay.drawMouseButtonHelp(self, posY, txt)
-	local xLeft = g_currentMission.hudHelpTextPosX1;
-	local xRight = g_currentMission.hudHelpTextPosX2;
-
-	local ovl = courseplay.inputBindings.mouse.overlaySecondary;
-	if ovl then
-		local h = (2.5 * g_currentMission.hudHelpTextSize);
-		local w = h / g_screenAspectRatio;
-		local y = posY - g_currentMission.hudHelpTextSize - g_currentMission.hudHelpTextLineSpacing*3;
-		ovl:setPosition(xLeft - w*0.2, y);
-		ovl:setDimension(w, h);
-		ovl:render();
-		xLeft = xLeft + w*0.6;
-	end;
-
-	posY = posY - g_currentMission.hudHelpTextSize - g_currentMission.hudHelpTextLineSpacing*2;
-	setTextAlignment(RenderText.ALIGN_RIGHT);
-	renderText(xRight, posY, g_currentMission.hudHelpTextSize, txt);
-
-	setTextAlignment(RenderText.ALIGN_LEFT);
-	renderText(xLeft, posY, g_currentMission.hudHelpTextSize, courseplay.inputBindings.mouse.secondaryTextI18n);
-end;
-
 function courseplay:showWorkWidth(vehicle)
 	local left =  vehicle.cp.workWidthDisplayPoints.left;
 	local right = vehicle.cp.workWidthDisplayPoints.right;
@@ -1095,7 +1072,7 @@ function courseplay:showWorkWidth(vehicle)
 end;
 
 function courseplay:drawWaypointsLines(vehicle)
-	if not courseplay.isDeveloper or not vehicle.isControlled then return; end;
+	if not CpManager.isDeveloper or not vehicle.isControlled then return; end;
 
 	local height = 2.5;
 	for i,wp in pairs(vehicle.Waypoints) do
@@ -1122,12 +1099,10 @@ function courseplay:drawWaypointsLines(vehicle)
 end;
 
 function courseplay:update(dt)
-	local isDriving = self:getIsCourseplayDriving();
-
 	-- KEYBOARD EVENTS
 	if self:getIsActive() and self.isEntered and InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER) then
 		if self.cp.canDrive then
-			if isDriving then
+			if self.cp.isDriving then
 				if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP) then
 					self:setCourseplayFunc("stop", nil, false, 1);
 				elseif self.cp.HUD1wait and InputBinding.hasEvent(InputBinding.COURSEPLAY_CANCELWAIT) then
@@ -1148,7 +1123,7 @@ function courseplay:update(dt)
 	end; -- self:getIsActive() and self.isEntered and modifierPressed
 
 
-	if g_server ~= nil and (isDriving or self.cp.isRecording or self.cp.recordingIsPaused) then
+	if g_server ~= nil and (self.cp.isDriving or self.cp.isRecording or self.cp.recordingIsPaused) then
 		courseplay:setInfoText(self, nil);
 	end;
 
@@ -1162,8 +1137,8 @@ function courseplay:update(dt)
 	end;
 
 	-- we are in drive mode and single player /MP server
-	if isDriving and g_server ~= nil then
-		for refIdx,_ in pairs(courseplay.globalInfoText.msgReference) do
+	if self.cp.isDriving and g_server ~= nil then
+		for refIdx,_ in pairs(CpManager.globalInfoText.msgReference) do
 			self.cp.hasSetGlobalInfoTextThisLoop[refIdx] = false;
 		end;
 
@@ -1171,7 +1146,7 @@ function courseplay:update(dt)
 
 		for refIdx,_ in pairs(self.cp.activeGlobalInfoTexts) do
 			if not self.cp.hasSetGlobalInfoTextThisLoop[refIdx] then
-				courseplay:setGlobalInfoText(self, refIdx, true); --force remove
+				CpManager:setGlobalInfoText(self, refIdx, true); --force remove
 			end;
 		end;
 	end
@@ -1187,7 +1162,7 @@ function courseplay:update(dt)
 	end
 
 	if g_server ~= nil then
-		if isDriving then
+		if self.cp.isDriving then
 			local showDriveOnButton = false;
 			if self.cp.mode == 6 then
 				if self.cp.wait and (self.recordnumber == self.cp.stopWork or self.cp.lastRecordnumber == self.cp.stopWork) and self.cp.abortWork == nil and not self.cp.isLoaded and not isFinishingWork and self.cp.hasUnloadingRefillingCourse then
@@ -1226,7 +1201,7 @@ function courseplay:update(dt)
 			end
 			self:setCpVar('HUD0wantsCourseplayer', combine.cp.wantsCourseplayer);
 			self:setCpVar('HUD0combineForcedSide', combine.cp.forcedSide);
-			self:setCpVar('HUD0isManual', not isDriving and not combine.isAIThreshing);
+			self:setCpVar('HUD0isManual', not self.cp.isDriving and not combine.isAIThreshing);
 			self:setCpVar('HUD0turnStage', self.cp.turnStage);
 			local tractor = combine.courseplayers[1]
 			if tractor ~= nil then
@@ -1285,9 +1260,9 @@ end
 
 function courseplay:preDelete()
 	if self.cp ~= nil and self.cp.numActiveGlobalInfoTexts ~= 0 then
-		for refIdx,_ in pairs(courseplay.globalInfoText.msgReference) do
+		for refIdx,_ in pairs(CpManager.globalInfoText.msgReference) do
 			if self.cp.activeGlobalInfoTexts[refIdx] ~= nil then
-				courseplay:setGlobalInfoText(self, refIdx, true);
+				CpManager:setGlobalInfoText(self, refIdx, true);
 				-- print(('%s: preDelete(): self.cp.activeGlobalInfoTexts[%s]=%s'):format(nameNum(self), tostring(refIdx), tostring(self.cp.activeGlobalInfoTexts[refIdx])));
 			end;
 			self.cp.hasSetGlobalInfoTextThisLoop[refIdx] = false;
@@ -1322,13 +1297,10 @@ function courseplay:delete()
 		if self.cp.buttons ~= nil then
 			courseplay.buttons:deleteButtonOverlays(self);
 		end;
-		if self.cp.globalInfoTextOverlay ~= nil then
-			self.cp.globalInfoTextOverlay:delete();
-		end;
 		if self.cp.signs ~= nil then
 			for _,section in pairs(self.cp.signs) do
 				for k,signData in pairs(section) do
-					courseplay.utils.signs:deleteSign(signData.sign);
+					courseplay.signs:deleteSign(signData.sign);
 				end;
 			end;
 			self.cp.signs = nil;
@@ -1473,7 +1445,7 @@ function courseplay:readStream(streamId, connection)
 		self.cp.unloadingTipper = networkGetObject(unloading_tipper_id)
 	end
 
-	courseplay:reinit_courses(self)
+	CpManager:reinitializeCourses()
 
 
 	-- kurs daten
@@ -1619,14 +1591,14 @@ function courseplay:loadFromAttributesAndNodes(xmlFile, key, resetVehicles)
 	if not resetVehicles and g_server ~= nil then
 		-- COURSEPLAY
 		local curKey = key .. '.courseplay';
-		courseplay:setCpMode(self, Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#aiMode'), 1));
-		self.cp.hud.openWithMouse = Utils.getNoNil(getXMLBool(xmlFile, curKey .. '#openHudWithMouse'), true);
-		self.cp.beaconLightsMode = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#beacon'), 1);
-		self.cp.waitTime = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#waitTime'), 0);
-		local courses = Utils.getNoNil(getXMLString(xmlFile, curKey .. '#courses'), '');
+		courseplay:setCpMode(self,  Utils.getNoNil(   getXMLInt(xmlFile, curKey .. '#aiMode'),			 1));
+		self.cp.hud.openWithMouse = Utils.getNoNil(  getXMLBool(xmlFile, curKey .. '#openHudWithMouse'), true);
+		self.cp.beaconLightsMode  = Utils.getNoNil(   getXMLInt(xmlFile, curKey .. '#beacon'),			 1);
+		self.cp.waitTime 		  = Utils.getNoNil(   getXMLInt(xmlFile, curKey .. '#waitTime'),		 0);
+		local courses 			  = Utils.getNoNil(getXMLString(xmlFile, curKey .. '#courses'),			 '');
 		self.cp.loadedCourses = Utils.splitString(",", courses);
 		courseplay:reload_courses(self, true);
-		local visualWaypointsMode = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#visualWaypoints'), 1);
+		local visualWaypointsMode = Utils.getNoNil(   getXMLInt(xmlFile, curKey .. '#visualWaypoints'),	 1);
 		courseplay:changeVisualWaypointsMode(self, 0, visualWaypointsMode);
 		self.cp.multiSiloSelectedFillType = Fillable.fillTypeNameToInt[Utils.getNoNil(getXMLString(xmlFile, curKey .. '#multiSiloSelectedFillType'), 'unknown')];
 		if self.cp.multiSiloSelectedFillType == nil then self.cp.multiSiloSelectedFillType = Fillable.FILLTYPE_UNKNOWN; end;
@@ -1634,27 +1606,27 @@ function courseplay:loadFromAttributesAndNodes(xmlFile, key, resetVehicles)
 		-- SPEEDS
 		curKey = key .. '.courseplay.speeds';
 		self.cp.speeds.useRecordingSpeed = Utils.getNoNil(getXMLBool(xmlFile, curKey .. '#useRecordingSpeed'), true);
-		self.cp.speeds.unload = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#unload'), 6);
-		self.cp.speeds.turn = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#turn'), 10);
-		self.cp.speeds.field = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#field'), 24);
-		self.cp.speeds.street = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#max'), 50);
+		self.cp.speeds.unload 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#unload'), 6);
+		self.cp.speeds.turn 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#turn'),  10);
+		self.cp.speeds.field 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#field'), 24);
+		self.cp.speeds.street 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#max'),   50);
 
 		-- MODE 2
 		curKey = key .. '.courseplay.combi';
-		self.cp.tipperOffset = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#tipperOffset'), 0);
-		self.cp.combineOffset = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#combineOffset'), 0);
-		self.cp.combineOffsetAutoMode = Utils.getNoNil(getXMLBool(xmlFile, curKey .. '#combineOffsetAutoMode'), true);
-		self.cp.followAtFillLevel = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#fillFollow'), 50);
-		self.cp.driveOnAtFillLevel = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#fillDriveOn'), 90);
-		self.cp.turnRadius = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#turnRadius'), 10);
-		self.cp.realisticDriving = Utils.getNoNil(getXMLBool(xmlFile, curKey .. '#realisticDriving'), true);
+		self.cp.tipperOffset 		  = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#tipperOffset'),			 0);
+		self.cp.combineOffset 		  = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#combineOffset'),		 0);
+		self.cp.combineOffsetAutoMode = Utils.getNoNil( getXMLBool(xmlFile, curKey .. '#combineOffsetAutoMode'), true);
+		self.cp.followAtFillLevel 	  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#fillFollow'),			 50);
+		self.cp.driveOnAtFillLevel 	  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#fillDriveOn'),			 90);
+		self.cp.turnRadius 			  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#turnRadius'),			 10);
+		self.cp.realisticDriving 	  = Utils.getNoNil( getXMLBool(xmlFile, curKey .. '#realisticDriving'),		 true);
 
 		-- MODES 4 / 6
 		curKey = key .. '.courseplay.fieldWork';
-		self.cp.workWidth = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#workWidth'), 3);
-		self.cp.ridgeMarkersAutomatic = Utils.getNoNil(getXMLBool(xmlFile, curKey .. '#ridgeMarkersAutomatic'), true);
-		self.cp.abortWork = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#abortWork'), 0);
-		if self.cp.abortWork == 0 then
+		self.cp.workWidth 			  = Utils.getNoNil(getXMLFloat(xmlFile, curKey .. '#workWidth'),			 3);
+		self.cp.ridgeMarkersAutomatic = Utils.getNoNil( getXMLBool(xmlFile, curKey .. '#ridgeMarkersAutomatic'), true);
+		self.cp.abortWork 			  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#abortWork'),			 0);
+		if self.cp.abortWork 		  == 0 then
 			self.cp.abortWork = nil;
 		end;
 		self.cp.refillUntilPct = Utils.getNoNil(getXMLInt(xmlFile, curKey .. '#refillUntilPct'), 100);
@@ -1750,7 +1722,7 @@ function courseplay:getSaveAttributesAndNodes(nodeIdent)
 
 	--NODES
 	local cpOpen = string.format('<courseplay aiMode=%q courses=%q openHudWithMouse=%q beacon=%q visualWaypoints=%q waitTime=%q multiSiloSelectedFillType=%q>', tostring(self.cp.mode), tostring(table.concat(self.cp.loadedCourses, ",")), tostring(self.cp.hud.openWithMouse), tostring(self.cp.beaconLightsMode), tostring(self.cp.visualWaypointsMode), tostring(self.cp.waitTime), Fillable.fillTypeIntToName[self.cp.multiSiloSelectedFillType]);
-	local speeds = string.format('<speeds useRecordingSpeed=%q unload="%.5f" turn="%.5f" field="%.5f" max="%.5f" />', tostring(self.cp.speeds.useRecordingSpeed), self.cp.speeds.unload, self.cp.speeds.turn, self.cp.speeds.field, self.cp.speeds.street);
+	local speeds = string.format('<speeds useRecordingSpeed=%q unload="%d" turn="%d" field="%d" max="%d" />', tostring(self.cp.speeds.useRecordingSpeed), self.cp.speeds.unload, self.cp.speeds.turn, self.cp.speeds.field, self.cp.speeds.street);
 	local combi = string.format('<combi tipperOffset="%.1f" combineOffset="%.1f" combineOffsetAutoMode=%q fillFollow="%d" fillDriveOn="%d" turnRadius="%d" realisticDriving=%q />', self.cp.tipperOffset, self.cp.combineOffset, tostring(self.cp.combineOffsetAutoMode), self.cp.followAtFillLevel, self.cp.driveOnAtFillLevel, self.cp.turnRadius, tostring(self.cp.realisticDriving));
 	local fieldWork = string.format('<fieldWork workWidth="%.1f" ridgeMarkersAutomatic=%q offsetData=%q abortWork="%d" refillUntilPct="%d" />', self.cp.workWidth, tostring(self.cp.ridgeMarkersAutomatic), offsetData, Utils.getNoNil(self.cp.abortWork, 0), self.cp.refillUntilPct);
 	local shovels, combine = '', '';

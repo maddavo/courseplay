@@ -105,10 +105,10 @@ function courseplay:start(self)
 
 	-- add do working players if not already added
 	if self.cp.coursePlayerNum == nil then
-		self.cp.coursePlayerNum = courseplay:addToTotalCoursePlayers(self)
+		self.cp.coursePlayerNum = CpManager:addToTotalCoursePlayers(self)
 	end;
 	--add to activeCoursePlayers
-	courseplay:addToActiveCoursePlayers(self);
+	CpManager:addToActiveCoursePlayers(self);
 
 	self.cp.backMarkerOffset = nil
 	self.cp.aiFrontMarker = nil
@@ -354,6 +354,14 @@ function courseplay:getCanUseAiMode(vehicle)
 
 	local mode = vehicle.cp.mode;
 
+	if (mode == 7 and not vehicle.cp.isCombine and not vehicle.cp.isChopper and not vehicle.cp.isHarvesterSteerable)
+	or ((mode == 1 or mode == 2 or mode == 3 or mode == 4 or mode == 8 or mode == 9) and (vehicle.cp.isCombine or vehicle.cp.isChopper or vehicle.cp.isHarvesterSteerable))
+	or ((mode ~= 5) and (vehicle.cp.isWoodHarvester or vehicle.cp.isWoodForwarder)) then
+		courseplay:setInfoText(vehicle, courseplay:loc('COURSEPLAY_MODE_NOT_SUPPORTED_FOR_VEHICLETYPE'));
+		return false;
+	end;
+
+
 	if mode ~= 5 and mode ~= 6 and mode ~= 7 and not vehicle.cp.workToolAttached then
 		courseplay:setInfoText(vehicle, courseplay:loc('COURSEPLAY_WRONG_TRAILER'));
 		return false;
@@ -534,8 +542,6 @@ function courseplay:stop(self)
 	self.cp.totalLength, self.cp.totalLengthOffset = 0, 0;
 	self.cp.numWorkTools = 0;
 
-	self.cp.timers.slippingWheels = 0;
-
 	self.cp.movingToolsPrimary, self.cp.movingToolsSecondary = nil, nil;
 	self.cp.attachedFrontLoader = nil
 	
@@ -543,9 +549,9 @@ function courseplay:stop(self)
 	if g_server ~= nil then
 		courseplay:setInfoText(self, nil);
 
-		for refIdx,_ in pairs(courseplay.globalInfoText.msgReference) do
+		for refIdx,_ in pairs(CpManager.globalInfoText.msgReference) do
 			if self.cp.activeGlobalInfoTexts[refIdx] ~= nil then
-				courseplay:setGlobalInfoText(self, refIdx, true);
+				CpManager:setGlobalInfoText(self, refIdx, true);
 			end;
 		end;
 	end
@@ -556,7 +562,7 @@ function courseplay:stop(self)
 	end;
 
 	--remove from activeCoursePlayers
-	courseplay:removeFromActiveCoursePlayers(self);
+	CpManager:removeFromActiveCoursePlayers(self);
 
 	--validation: can switch mode?
 	courseplay:validateCanSwitchMode(self);
