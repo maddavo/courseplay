@@ -3,6 +3,8 @@ CpManager = {};
 local CpManager_mt = Class(CpManager);
 addModEventListener(CpManager);
 
+
+
 function CpManager:loadMap(name)
 	self.isCourseplayManager = true;
 	self.firstRun = true;
@@ -30,6 +32,7 @@ function CpManager:loadMap(name)
 	self.showFieldScanYesNoDialogue = false;
 	self:setupWages();
 	self:setupIngameMap();
+	courseplay.courses:setup(); -- NOTE: this call is only to set up batchWriteSize, without loading anything
 
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- LOAD SETTINGS FROM COURSEPLAY.XML / SAVE DEFAULT SETTINGS IF NOT EXISTING
@@ -37,9 +40,10 @@ function CpManager:loadMap(name)
 
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- SETUP (continued)
-	courseplay.hud:setup(); -- NOTE: hud has to be set up after the xml settings have been loaded, as almost all its values are based on infoBasePosX/Y
+	courseplay.hud:setup(); -- NOTE: hud has to be set up after the xml settings have been loaded, as almost all its values are based on basePosX/Y
 	self:setUpDebugChannels(); -- NOTE: debugChannels have to be set up after the hud, as they rely on some hud values [positioning]
-	self:setupGlobalInfoText(); -- NOTE: globalInfoText has to be set up after the hud, as they rely on some hud values [colors]
+	self:setupGlobalInfoText(); -- NOTE: globalInfoText has to be set up after the hud, as they rely on some hud values [colors, function]
+	courseplay.courses:setup(true); -- NOTE: courses:setup is called a second time, now we actually load the courses and folders from the XML
 
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- COURSEPLAYERS TABLES
@@ -72,10 +76,6 @@ function CpManager:loadMap(name)
 	end;
 
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	-- WAGES
-	self.wageDifficultyMultiplier = Utils.lerp(0.5, 1, (g_currentMission.missionStats.difficulty - 1) / 2);
-
-	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- TIMERS
 	g_currentMission.environment:addMinuteChangeListener(self);
 	self.realTimeMinuteTimer = 0;
@@ -102,20 +102,6 @@ function CpManager:loadMap(name)
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- MISCELLANEOUS
 	self.lightsNeeded = false;
-
-	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	-- LOAD COURSES AND FOLDERS
-	if g_currentMission.cp_courses == nil then
-		--courseplay:debug("cp_courses was nil and initialized", 8);
-		g_currentMission.cp_courses = {};
-		g_currentMission.cp_folders = {};
-		g_currentMission.cp_sorted = {item={}, info={}};
-
-		if g_server ~= nil and next(g_currentMission.cp_courses) == nil then
-			self:load_courses();
-			-- courseplay:debug(tableShow(g_currentMission.cp_courses, "g_cM cp_courses", 8), 8);
-		end
-	end;
 end;
 
 function CpManager:deleteMap()
@@ -124,6 +110,7 @@ function CpManager:deleteMap()
 	g_currentMission.cp_courses = nil;
 	g_currentMission.cp_folders = nil;
 	g_currentMission.cp_sorted = nil;
+	courseplay.courses.batchWriteSize = nil;
 
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- deactivate debug channels
@@ -134,7 +121,7 @@ function CpManager:deleteMap()
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- delete vehicles' button overlays
 	for i,vehicle in pairs(g_currentMission.steerables) do
-		if vehicle.cp ~= nil and vehicle.cp.hasCourseplaySpec and vehicle.cp.buttons ~= nil then
+		if vehicle.cp ~= nil and vehicle.hasCourseplaySpec and vehicle.cp.buttons ~= nil then
 			courseplay.buttons:deleteButtonOverlays(vehicle);
 		end;
 	end;
@@ -185,18 +172,16 @@ function CpManager:deleteMap()
 	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	-- delete fieldScanInfo overlays
 	if self.fieldScanInfo then
-		for _,ovl in ipairs( { 'bgOverlay', 'loadOverlay', 'progressBarBgOverlay', 'progressBarOverlay' } ) do
-			if self.fieldScanInfo[ovl] then
-				self.fieldScanInfo[ovl]:delete();
-				self.fieldScanInfo[ovl] = nil;
-			end;
-		end;
+		self.fieldScanInfo.bgOverlay:delete();
+		self.fieldScanInfo.bgOverlay = nil;
+		self.fieldScanInfo.progressBarOverlay:delete();
+		self.fieldScanInfo.progressBarOverlay = nil;
 	end;
 
 end;
 
 function CpManager:update(dt)
-	if g_gui.currentGui ~= nil and g_gui.currentGuiName ~= 'inputCourseNameDialogue' then
+	if g_currentMission.paused or (g_gui.currentGui ~= nil and g_gui.currentGuiName ~= 'inputCourseNameDialogue') then
 		return;
 	end;
 
@@ -205,7 +190,7 @@ function CpManager:update(dt)
 		self.firstRun = false;
 	end;
 
-	if not g_currentMission.paused and g_gui.currentGui == nil then
+	if g_gui.currentGui == nil then
 		-- SETUP FIELD INGAME DATA
 		if not courseplay.fields.ingameDataSetUp then
 			courseplay.fields:setUpFieldsIngameData();
@@ -227,12 +212,22 @@ function CpManager:update(dt)
 
 
 	-- REAL TIME 10 SECS CHANGER
-	if not g_currentMission.paused and courseplay.wagesActive and g_server ~= nil then -- TODO: if there are more items to be dealt with every 10 secs, remove the "wagesActive" restriction
+	if self.wagesActive and g_server ~= nil then -- NOTE: if there are more items to be dealt with every 10 secs, remove the "wagesActive" restriction
 		if self.realTime10SecsTimer < 10000 then
 			self.realTime10SecsTimer = self.realTime10SecsTimer + dt;
 		else
 			self:realTime10SecsChanged();
 			self.realTime10SecsTimer = self.realTime10SecsTimer - 10000;
+		end;
+	end;
+
+	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	-- HELP MENU
+	if g_gui.currentGui == nil and g_currentMission.controlledVehicle == nil and not g_currentMission.player.currentTool then
+		if self.playerOnFootMouseEnabled then
+			g_currentMission:addHelpTextFunction(self.drawMouseButtonHelp, self, self.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_HIDE'));
+		elseif self.globalInfoText.hasContent then
+			g_currentMission:addHelpTextFunction(self.drawMouseButtonHelp, self, self.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_SHOW'));
 		end;
 	end;
 end;
@@ -262,17 +257,6 @@ function CpManager:draw()
 	-- DISPLAY FIELD SCAN MSG
 	if courseplay.fields.automaticScan and not courseplay.fields.allFieldsScanned then
 		self:renderFieldScanInfo();
-	end;
-
-	-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-	-- HELP MENU
-	-- TODO: addHelpTextFunction() is called, but drawMouseButtonHelp() isn't
-	if g_currentMission.controlledVehicle == nil and not g_currentMission.player.currentTool then
-		if self.playerOnFootMouseEnabled then
-			g_currentMission:addHelpTextFunction(self.drawMouseButtonHelp, self, self.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_HIDE'));
-		elseif self.globalInfoText.hasContent then
-			g_currentMission:addHelpTextFunction(self.drawMouseButtonHelp, self, self.hudHelpMouseLineHeight, courseplay:loc('COURSEPLAY_MOUSEARROW_SHOW'));
-		end;
 	end;
 end;
 
@@ -442,31 +426,36 @@ end;
 function CpManager:setupFieldScanInfo()
 	-- FIELD SCAN INFO DISPLAY
 	self.fieldScanInfo = {};
-	self.fieldScanInfo.fileW = 512/1080 / g_screenAspectRatio; --512/1920;
-	self.fieldScanInfo.fileH = 256/1080;
-	self.fieldScanInfo.contentW = 426/1080 / g_screenAspectRatio; --426/1920;
-	self.fieldScanInfo.contentH = 180/1080;
-	self.fieldScanInfo.bgX, self.fieldScanInfo.bgY = 0.5 - self.fieldScanInfo.contentW/2, 0.5 - self.fieldScanInfo.contentH/2;
-	local bgPath = Utils.getFilename('img/fieldScanInfoBackground.png', courseplay.path);
-	self.fieldScanInfo.bgOverlay = Overlay:new('fieldScanInfoBackground', bgPath, self.fieldScanInfo.bgX, self.fieldScanInfo.bgY, self.fieldScanInfo.fileW, self.fieldScanInfo.fileH);
-	local xPadding = 20/1080 / g_screenAspectRatio; --20/1920;
-	self.fieldScanInfo.lineX  = self.fieldScanInfo.bgX + xPadding;
-	self.fieldScanInfo.line1Y = self.fieldScanInfo.bgY + 67/1080;
-	self.fieldScanInfo.line2Y = self.fieldScanInfo.bgY + 40/1080;
-	self.fieldScanInfo.loadX  = self.fieldScanInfo.bgX + 340/1080 / g_screenAspectRatio; --340/1920;
-	self.fieldScanInfo.loadY  = self.fieldScanInfo.bgY + 57/1080;
 
-	local loadingPath = Utils.getFilename('img/fieldScanInfoLoading.png', courseplay.path);
-	self.fieldScanInfo.loadOverlay = Overlay:new('fieldScanInfoLoad', loadingPath, self.fieldScanInfo.loadX, self.fieldScanInfo.loadY, 32/1080 / g_screenAspectRatio, 32/1080);
-	self.fieldScanInfo.loadRotStep = 0;
-	self.fieldScanInfo.loadRotAdd = math.rad(-360/72); --rotate 5° to the right each step
-	self.fieldScanInfo.rotationTime = 1000/72; --in ms
+	local gfxPath = Utils.getFilename('img/fieldScanInfo.png', courseplay.path);
 
-	self.fieldScanInfo.progressBarWidth = self.fieldScanInfo.contentW - 2 * xPadding - 5/1920;
-	local progressBarBgPath = Utils.getFilename('img/progressBarBackground.png', courseplay.path);
-	self.fieldScanInfo.progressBarBgOverlay = Overlay:new('fieldScanInfoProgressBarBg', progressBarBgPath, self.fieldScanInfo.lineX, self.fieldScanInfo.bgY + 16/1080, self.fieldScanInfo.progressBarWidth, 16/1080);
-	local progressBarPath = Utils.getFilename('img/progressBar.png', courseplay.path);
-	self.fieldScanInfo.progressBarOverlay = Overlay:new('fieldScanInfoProgressBar', progressBarPath, self.fieldScanInfo.lineX, self.fieldScanInfo.bgY + 16/1080, self.fieldScanInfo.progressBarWidth, 16/1080);
+	self.fieldScanInfo.fileWidth  = 512;
+	self.fieldScanInfo.fileHeight = 256;
+
+	local bgUVs = { 41,210, 471,10 };
+	local bgW = courseplay.hud:pxToNormal(bgUVs[3] - bgUVs[1], 'x');
+	local bgH = courseplay.hud:pxToNormal(bgUVs[2] - bgUVs[4], 'y');
+	local bgX = 0.5 - bgW * 0.5;
+	local bgY = 0.5 - bgH * 0.5;
+	self.fieldScanInfo.bgOverlay = Overlay:new('fieldScanInfoBackground', gfxPath, bgX, bgY, bgW, bgH);
+	courseplay.utils:setOverlayUVsPx(self.fieldScanInfo.bgOverlay, bgUVs, self.fieldScanInfo.fileWidth, self.fieldScanInfo.fileHeight);
+
+	self.fieldScanInfo.textPosX  = bgX + courseplay.hud:pxToNormal(10, 'x');
+	self.fieldScanInfo.textPosY  = bgY + courseplay.hud:pxToNormal(55, 'y');
+	self.fieldScanInfo.titlePosY = bgY + courseplay.hud:pxToNormal(88, 'y');
+	self.fieldScanInfo.titleFontSize = courseplay.hud:pxToNormal(22, 'y');
+	self.fieldScanInfo.textFontSize  = courseplay.hud:pxToNormal(16, 'y');
+
+
+	self.fieldScanInfo.progressBarMaxWidthPx = 406;
+	self.fieldScanInfo.progressBarMaxWidth = courseplay.hud:pxToNormal(406, 'x');
+	local pbH = courseplay.hud:pxToNormal(26, 'y');
+	self.fieldScanInfo.progressBarUVs = { 53,246, 459,220 };
+	local pbX = bgX + courseplay.hud:pxToNormal(12, 'x');
+	local pbY = bgY + courseplay.hud:pxToNormal(12, 'y');
+	self.fieldScanInfo.progressBarOverlay = Overlay:new('fieldScanInfoProgressBar', gfxPath, pbX, pbY, self.fieldScanInfo.progressBarMaxWidth, pbH);
+	courseplay.utils:setOverlayUVsPx(self.fieldScanInfo.progressBarOverlay, self.fieldScanInfo.progressBarUVs, self.fieldScanInfo.fileWidth, self.fieldScanInfo.fileHeight);
+
 	self.fieldScanInfo.percentColors = {
 		{ pct = 0.0, color = { 225/255,  27/255, 0/255 } },
 		{ pct = 0.5, color = { 255/255, 204/255, 0/255 } },
@@ -477,35 +466,31 @@ end;
 function CpManager:renderFieldScanInfo()
 	local fsi = self.fieldScanInfo;
 
-	fsi.progressBarBgOverlay:render();
-	local pct = courseplay.fields.curFieldScanIndex / g_currentMission.fieldDefinitionBase.numberOfFields;
-	local r, g, b = courseplay.utils:getColorFromPct(pct, fsi.percentColors);
-	fsi.progressBarOverlay:setColor(r, g, b, 1);
-	fsi.progressBarOverlay.width = fsi.progressBarWidth * pct;
-	setOverlayUVs(fsi.progressBarOverlay.overlayId, 0,0, 0,1, pct,0, pct,1);
-	fsi.progressBarOverlay:render();
-
 	fsi.bgOverlay:render();
 
+	local pct = courseplay.fields.curFieldScanIndex / g_currentMission.fieldDefinitionBase.numberOfFields;
+
+	local r, g, b = courseplay.utils:getColorFromPct(pct, fsi.percentColors);
+	fsi.progressBarOverlay:setColor(r, g, b, 1);
+
+	fsi.progressBarOverlay.width = fsi.progressBarMaxWidth * pct;
+	local widthPx = courseplay:round(fsi.progressBarMaxWidthPx * pct);
+	local newUVs = { fsi.progressBarUVs[1], fsi.progressBarUVs[2], fsi.progressBarUVs[1] + widthPx, fsi.progressBarUVs[4] };
+	courseplay.utils:setOverlayUVsPx(fsi.progressBarOverlay, newUVs, fsi.fileWidth, fsi.fileHeight);
+	fsi.progressBarOverlay:render();
+
 	courseplay:setFontSettings({ 0.8, 0.8, 0.8, 1 }, true, 'left');
-	renderText(fsi.lineX, fsi.line1Y - 0.001, courseplay.hud.fontSizes.fieldScanTitle, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
+	renderText(fsi.textPosX, fsi.titlePosY - 0.001, fsi.titleFontSize, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
 	courseplay:setFontSettings('shadow', true);
-	renderText(fsi.lineX, fsi.line1Y,         courseplay.hud.fontSizes.fieldScanTitle, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
+	renderText(fsi.textPosX, fsi.titlePosY,         fsi.titleFontSize, courseplay:loc('COURSEPLAY_FIELD_SCAN_IN_PROGRESS'));
 
-	local str2 = courseplay:loc('COURSEPLAY_SCANNING_FIELD_NMB'):format(courseplay.fields.curFieldScanIndex, g_currentMission.fieldDefinitionBase.numberOfFields);
+	local text = courseplay:loc('COURSEPLAY_SCANNING_FIELD_NMB'):format(courseplay.fields.curFieldScanIndex, g_currentMission.fieldDefinitionBase.numberOfFields);
 	courseplay:setFontSettings({ 0.8, 0.8, 0.8, 1 }, false);
-	renderText(fsi.lineX, fsi.line2Y - 0.001, courseplay.hud.fontSizes.fieldScanData, str2);
+	renderText(fsi.textPosX, fsi.textPosY - 0.001, fsi.textFontSize, text);
 	courseplay:setFontSettings('shadow', false);
-	renderText(fsi.lineX, fsi.line2Y,         courseplay.hud.fontSizes.fieldScanData, str2);
+	renderText(fsi.textPosX, fsi.textPosY,         fsi.textFontSize, text);
 
-	local rotationStep = math.floor(g_currentMission.time / self.fieldScanInfo.rotationTime);
-	if rotationStep > fsi.loadRotStep then
-		fsi.loadOverlay:setRotation(rotationStep * fsi.loadRotAdd, fsi.loadOverlay.width/2, fsi.loadOverlay.height/2);
-		fsi.loadRotStep = rotationStep;
-	end;
-	fsi.loadOverlay:render();
-
-	--reset font settings
+	-- reset font settings
 	courseplay:setFontSettings('white', true);
 end;
 
@@ -537,7 +522,7 @@ function CpManager:severCombineTractorConnection(vehicle, callDelete)
 			local combine = vehicle;
 			-- remove this combine as savedCombine from all tractors
 			for i,tractor in pairs(g_currentMission.steerables) do
-				if tractor.cp and tractor.cp.savedCombine and tractor.cp.savedCombine == combine and tractor.cp.hasCourseplaySpec  then
+				if tractor.hasCourseplaySpec and tractor.cp.savedCombine and tractor.cp.savedCombine == combine then
 					courseplay:debug(('\ttractor %q: savedCombine=%q --> removeSavedCombineFromTractor()'):format(nameNum(tractor), nameNum(combine)), 4);
 					courseplay:removeSavedCombineFromTractor(tractor);
 				end;
@@ -617,6 +602,7 @@ end;
 -- ####################################################################################################
 -- WAGES
 function CpManager:setupWages()
+	self.wageDifficultyMultiplier = Utils.lerp(0.5, 1, (g_currentMission.missionStats.difficulty - 1) / 2);
 	self.wagesActive = true;
 	self.wagePerHour = 1500;
 	self.wagePer10Secs  = self.wagePerHour / 360;
@@ -655,7 +641,7 @@ function CpManager:setupGlobalInfoText()
 
 	self.globalInfoText.posY = 0.01238; -- = ingameMap posY
 	self.globalInfoText.posYAboveMap = self.globalInfoText.posY + 0.027777777777778 + 0.20833333333333;
-	self.globalInfoText.fontSize = 0.016;
+	self.globalInfoText.fontSize = courseplay.hud:pxToNormal(18, 'y');
 	self.globalInfoText.lineHeight = self.globalInfoText.fontSize * 1.2;
 	self.globalInfoText.lineMargin = self.globalInfoText.lineHeight * 0.2;
 	self.globalInfoText.buttonHeight = self.globalInfoText.lineHeight;
@@ -838,25 +824,26 @@ function CpManager:loadOrSetXmlSettings()
 		createFolder(self.savegameFolderPath);
 		local cpFile;
 		if fileExists(self.cpXmlFilePath) then
-			print('## Courseplay: loading settings from "courseplay.xml"');
 			cpFile = loadXMLFile('cpFile', self.cpXmlFilePath);
 		else
 			self:createXmlSettings();
 			return;
 		end;
 
+		print('## Courseplay: loading settings from "courseplay.xml"');
+
 		-- hud position
 		local key = 'XML.courseplayHud';
 		local posX, posY = getXMLFloat(cpFile, key .. '#posX'), getXMLFloat(cpFile, key .. '#posY');
 		if posX then
-			courseplay.hud.infoBasePosX = posX;
+			courseplay.hud.basePosX = courseplay.hud:getFullPx(posX, 'x');
 		else
-			setXMLFloat(cpFile, key .. '#posX', courseplay.hud.infoBasePosX);
+			setXMLFloat(cpFile, key .. '#posX', courseplay.hud.basePosX);
 		end;
 		if posY then
-			courseplay.hud.infoBasePosY = posY;
+			courseplay.hud.basePosY = courseplay.hud:getFullPx(posY, 'y');
 		else
-			setXMLFloat(cpFile, key .. '#posY', courseplay.hud.infoBasePosY);
+			setXMLFloat(cpFile, key .. '#posY', courseplay.hud.basePosY);
 		end;
 
 
@@ -931,8 +918,17 @@ function CpManager:loadOrSetXmlSettings()
 		else
 			setXMLBool(cpFile, key .. '#showCourse', self.ingameMapIconShowCourse);
 		end;
-		self.ingameMapIconShowText	 = self.ingameMapIconShowName or self.ingameMapIconShowCourse;
+		self.ingameMapIconShowText = self.ingameMapIconShowName or self.ingameMapIconShowCourse;
 
+
+		-- batch write size (used in deleteSaveAll())
+		key = 'XML.courseManagement';
+		local batchWriteSize = getXMLInt(cpFile, key .. '#batchWriteSize');
+		if batchWriteSize ~= nil then
+			courseplay.courses.batchWriteSize = batchWriteSize;
+		else
+			setXMLInt(cpFile, key .. '#batchWriteSize', courseplay.courses.batchWriteSize);
+		end;
 
 		--------------------------------------------------
 		saveXMLFile(cpFile);
@@ -948,8 +944,8 @@ function CpManager:createXmlSettings()
 
 	-- hud position
 	local key = 'XML.courseplayHud';
-	setXMLFloat(cpFile, key .. '#posX', courseplay.hud.infoBasePosX);
-	setXMLFloat(cpFile, key .. '#posY', courseplay.hud.infoBasePosY);
+	setXMLFloat(cpFile, key .. '#posX', courseplay.hud.basePosX);
+	setXMLFloat(cpFile, key .. '#posY', courseplay.hud.basePosY);
 
 	-- fields settings
 	self.showFieldScanYesNoDialogue = true;
@@ -972,228 +968,11 @@ function CpManager:createXmlSettings()
 	setXMLBool(cpFile, key .. '#showName',	 self.ingameMapIconShowName);
 	setXMLBool(cpFile, key .. '#showCourse', self.ingameMapIconShowCourse);
 
+	-- batch write size (used in deleteSaveAll())
+	key = 'XML.courseManagement';
+	setXMLInt(cpFile, key .. '#batchWriteSize', courseplay.courses.batchWriteSize);
 	--------------------------------------------------
 
 	saveXMLFile(cpFile);
 	delete(cpFile);
 end;
-
-
-
--- ####################################################################################################
-
-
-function CpManager:load_courses()
-	courseplay:debug('loading courses by courseplay manager', 8);
-
-	local finish_all = false;
-	if self.cpXmlFilePath then
-		local filePath = self.cpXmlFilePath;
-
-		if fileExists(filePath) then
-			local cpFile = loadXMLFile("courseFile", filePath);
-			g_currentMission.cp_courses = nil -- make sure it's empty (especially in case of a reload)
-			g_currentMission.cp_courses = {}
-			local courses_by_id = g_currentMission.cp_courses
-			local courses_without_id = {}
-			local i = 0
-			
-			local tempCourse
-			repeat
-
-				--current course
-				local currentCourse = string.format("XML.courses.course(%d)", i)
-				if not hasXMLProperty(cpFile, currentCourse) then
-					finish_all = true;
-					break;
-				end;
-
-				--course name
-				local courseName = getXMLString(cpFile, currentCourse .. "#name");
-				if courseName == nil then
-					courseName = string.format('NO_NAME%d',i)
-				end;
-				local courseNameClean = courseplay:normalizeUTF8(courseName);
-
-				--course ID
-				local id = getXMLInt(cpFile, currentCourse .. "#id")
-				if id == nil then
-					id = 0;
-				end;
-				
-				--course parent
-				local parent = getXMLInt(cpFile, currentCourse .. "#parent")
-				if parent == nil then
-					parent = 0
-				end
-
-				--course waypoints
-				tempCourse = {};
-				local wpNum = 1;
-				local key = currentCourse .. ".waypoint" .. wpNum;
-				local finish_wp = not hasXMLProperty(cpFile, key);
-				
-				while not finish_wp do
-					local x, z = Utils.getVectorFromString(getXMLString(cpFile, key .. "#pos"));
-					if x ~= nil then
-						if z == nil then
-							finish_wp = true;
-							break;
-						end;
-						local dangle =   Utils.getVectorFromString(getXMLString(cpFile, key .. "#angle"));
-						local wait =     Utils.getVectorFromString(getXMLString(cpFile, key .. "#wait"));
-						local speed =    Utils.getVectorFromString(getXMLString(cpFile, key .. "#speed"));
-						local rev =      Utils.getVectorFromString(getXMLString(cpFile, key .. "#rev"));
-						local crossing = Utils.getVectorFromString(getXMLString(cpFile, key .. "#crossing"));
-
-						--course generation
-						local generated =   Utils.getNoNil(getXMLBool(cpFile, key .. "#generated"), false);
-						local dir =         getXMLString(cpFile, key .. "#dir");
-						local turn =        Utils.getNoNil(getXMLString(cpFile, key .. "#turn"), "false");
-						local turnStart =   Utils.getNoNil(getXMLInt(cpFile, key .. "#turnstart"), 0);
-						local turnEnd =     Utils.getNoNil(getXMLInt(cpFile, key .. "#turnend"), 0);
-						local ridgeMarker = Utils.getNoNil(getXMLInt(cpFile, key .. "#ridgemarker"), 0);
-
-						crossing = crossing == 1 or wpNum == 1;
-						wait = wait == 1;
-						rev = rev == 1;
-						
-						--is it a old savegame with old speeds ?
-						if math.ceil(speed) ~= speed then
-							speed = math.ceil(speed*3600)							
-						end
-
-						--generated not needed, since true or false are loaded from file
-						if turn == "false" then
-							turn = nil;
-						end;
-						turnStart = turnStart == 1;
-						turnEnd = turnEnd == 1;
-						--ridgeMarker not needed, since 0, 1 or 2 is loaded from file
-
-						tempCourse[wpNum] = { 
-							cx = x, 
-							cz = z, 
-							angle = dangle, 
-							rev = rev, 
-							wait = wait, 
-							crossing = crossing, 
-							speed = speed,
-							generated = generated,
-							laneDir = dir,
-							turn = turn,
-							turnStart = turnStart,
-							turnEnd = turnEnd,
-							ridgeMarker = ridgeMarker
-						};
-						
-						-- prepare next waypoint
-						wpNum = wpNum + 1;
-						key = currentCourse .. ".waypoint" .. wpNum;
-						finish_wp = not hasXMLProperty(cpFile, key);
-					else
-						finish_wp = true;
-						break;
-					end;
-				end -- while finish_wp == false;
-				
-				local course = { id = id, uid = 'c' .. id , type = 'course', name = courseName, nameClean = courseNameClean, waypoints = tempCourse, parent = parent }
-				if id ~= 0 then
-					courses_by_id[id] = course
-				else
-					table.insert(courses_without_id, course)
-				end
-				
-				tempCourse = nil;
-				i = i + 1;
-				
-			until finish_all == true;
-			
-			local j = 0
-			local currentFolder, FolderName, id, parent, folder
-			finish_all = false
-			g_currentMission.cp_folders = nil
-			g_currentMission.cp_folders = {}
-			local folders_by_id = g_currentMission.cp_folders
-			local folders_without_id = {}
-			repeat
-				-- current folder
-				currentFolder = string.format("XML.folders.folder(%d)", j)
-				if not hasXMLProperty(cpFile, currentFolder) then
-					finish_all = true;
-					break;
-				end;
-				
-				-- folder name
-				FolderName = getXMLString(cpFile, currentFolder .. "#name")
-				if FolderName == nil then
-					FolderName = string.format('NO_NAME%d',j)
-				end
-				local folderNameClean = courseplay:normalizeUTF8(FolderName);
-				
-				-- folder id
-				id = getXMLInt(cpFile, currentFolder .. "#id")
-				if id == nil then
-					id = 0
-				end
-				
-				-- folder parent
-				parent = getXMLInt(cpFile, currentFolder .. "#parent")
-				if parent == nil then
-					parent = 0
-				end
-				
-				-- "save" current folder
-				folder = { id = id, uid = 'f' .. id ,type = 'folder', name = FolderName, nameClean = folderNameClean, parent = parent }
-				if id ~= 0 then
-					folders_by_id[id] = folder
-				else
-					table.insert(folders_without_id, folder)
-				end
-				j = j + 1
-			until finish_all == true
-			
-			local save = false
-			if #courses_without_id > 0 then
-				-- give a new ID and save
-				local maxID = courseplay.courses.getMaxCourseID()
-				for i = 1, #courses_without_id do
-					maxID = maxID + 1
-					courses_without_id[i].id = maxID
-					courses_without_id[i].uid = 'c' .. maxID
-					courses_by_id[maxID] = courses_without_id[i]
-				end
-				save = true
-			end
-			if #folders_without_id > 0 then
-				-- give a new ID and save
-				local maxID = courseplay.courses.getMaxFolderID()
-				for i = #folders_without_id, 1, -1 do
-					maxID = maxID + 1
-					folders_without_id[i].id = maxID
-					folders_without_id[i].uid = 'f' .. maxID
-					folders_by_id[maxID] = table.remove(folders_without_id)
-				end
-				save = true
-			end		
-			if save then
-				-- this will overwrite the courseplay file and therefore delete the courses without ids and add them again with ids as they are now stored in g_currentMission with an id
-				courseplay.courses.save_all()
-			end
-			
-			g_currentMission.cp_sorted = courseplay.courses.sort(courses_by_id, folders_by_id, 0, 0)
-						
-			delete(cpFile);
-		else
-			-- print(('\t"courseplay.xml" missing at %q'):format(tostring(self.cpXmlFilePath);
-		end; --END if fileExists
-		
-		courseplay:debug(tableShow(g_currentMission.cp_sorted.item, "cp_sorted.item", 8), 8);
-
-		return g_currentMission.cp_courses;
-	else
-		print('COURSEPLAY ERROR: current savegame could not be found');
-	end; --END if savegame ~= nil
-
-	return nil;
-end

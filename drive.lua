@@ -4,7 +4,7 @@ local abs, max, min, pow, sin = math.abs, math.max, math.min, math.pow, math.sin
 
 -- drives recored course
 function courseplay:drive(self, dt)
-	if not courseplay:getCanUseAiMode(self) then
+	if not courseplay:getCanUseCpMode(self) then
 		return;
 	end;
 
@@ -228,14 +228,18 @@ function courseplay:drive(self, dt)
 			courseplay:setVehicleWait(self, false);
 		else
 			CpManager:setGlobalInfoText(self, 'WAIT_POINT');
-		end
+		end;
 
 		-- wait time passed -> continue driving
 		if self.cp.waitTimer and self.timer > self.cp.waitTimer then
 			self.cp.waitTimer = nil
 			courseplay:setVehicleWait(self, false);
 		end
-		allowedToDrive = false
+
+		local _,_,zDist = worldToLocal(self.cp.DirectionNode, self.Waypoints[self.cp.lastRecordnumber].cx, cty, self.Waypoints[self.cp.lastRecordnumber].cz);
+		if zDist < 1 then -- don't stop immediately when hitting the waitPoints recordnumber, but rather wait until we're close enough (1m)
+			allowedToDrive = false;
+		end;
 	-- ### WAITING POINTS - END
 
 	-- ### NON-WAITING POINTS
@@ -469,7 +473,6 @@ function courseplay:drive(self, dt)
 		self.cp.isTrafficBraking = false
 		AIVehicleUtil.driveInDirection(self, dt, 30, 0, 0, 28, false, moveForwards, 0, 1)
 		return;
-		-- unload active tipper if given
 	end
 
 	if self.cp.isTurning ~= nil then
@@ -477,7 +480,7 @@ function courseplay:drive(self, dt)
 		self.cp.TrafficBrake = false
 		return
 	end
-
+	self.cp.checkMarkers = false
 
 	--SPEED SETTING
 	local isAtEnd   = self.recordnumber > self.maxnumber - 3;
@@ -1206,8 +1209,8 @@ function courseplay:setFourWheelDrive(vehicle, workArea)
 	local changed = false;
 
 	-- set 4WD
-	local awdOn = workArea or vehicle.cp.BGASelectedSection or vehicle.cp.slippingStage ~= 0 or vehicle.cp.mode == 9 or (vehicle.cp.mode == 2 and vehicle.cp.modeState > 1);
-	local awdOff = not workArea and not vehicle.cp.BGASelectedSection and vehicle.cp.slippingStage == 0 and vehicle.cp.mode ~= 9 and not (vehicle.cp.mode == 2 and vehicle.cp.modeState > 1);
+	local awdOn = vehicle.cp.driveControl.alwaysUseFourWD or workArea or vehicle.cp.isBGATipping or vehicle.cp.slippingStage ~= 0 or vehicle.cp.mode == 9 or (vehicle.cp.mode == 2 and vehicle.cp.modeState > 1);
+	local awdOff = not vehicle.cp.driveControl.alwaysUseFourWD and not workArea and not vehicle.cp.isBGATipping and vehicle.cp.slippingStage == 0 and vehicle.cp.mode ~= 9 and not (vehicle.cp.mode == 2 and vehicle.cp.modeState > 1);
 	if awdOn and not vehicle.driveControl.fourWDandDifferentials.fourWheel then
 		courseplay:debug(('%s: set fourWheel to true'):format(nameNum(vehicle)), 14);
 		vehicle.driveControl.fourWDandDifferentials.fourWheel = true;
