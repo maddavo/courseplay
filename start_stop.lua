@@ -295,6 +295,7 @@ function courseplay:start(self)
 	elseif self.cp.startAtPoint == courseplay.START_AT_FIRST_POINT then
 		if self.cp.mode == 2 or self.cp.mode == 3 then
 			courseplay:setRecordNumber(self, 3);
+			courseplay:setIsLoaded(self, true);
 		else
 			courseplay:setRecordNumber(self, 1);
 		end
@@ -507,9 +508,12 @@ function courseplay:stop(self)
 	self.cp.foundColli = {}
 	self.cp.inTraffic = false
 	self.cp.bypassWaypointsSet = false
-	--deactivate beacon lights
+	-- deactivate beacon and hazard lights
 	if self.beaconLightsActive then
 		self:setBeaconLightsVisibility(false);
+	end;
+	if self.turnSignalState and self.turnSignalState ~= Vehicle.TURNSIGNAL_OFF then
+		self:setTurnSignalState(Vehicle.TURNSIGNAL_OFF);
 	end;
 
 	--open all covers

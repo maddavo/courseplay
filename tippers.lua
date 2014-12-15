@@ -99,6 +99,9 @@ end;
 function courseplay:isPushWagon(workTool)
 	return workTool.typeName:match("forageWagon") or workTool.cp.hasSpecializationSiloTrailer or workTool.cp.isPushWagon;
 end;
+function courseplay:isSpecialChopper(workTool)
+	return workTool.typeName:match("woodCrusherTrailer") 
+end
 
 -- UPDATE WORKTOOL DATA
 function courseplay:updateWorkTools(vehicle, workTool, isImplement)
@@ -459,12 +462,11 @@ function courseplay:setTipperCoverData(vehicle)
 		local workTool = vehicle.cp.workTools[i];
 
 		-- Default Giants trailers
-		if workTool.cp.hasSpecializationCover then
+		if workTool.cp.hasSpecializationCover and not workTool.cp.isStrawBlower then
 			courseplay:debug(string.format('Implement %q has a cover (hasSpecializationCover == true)', tostring(workTool.name)), 6);
 			local data = {
 				coverType = 'defaultGiants',
 				tipperIndex = i,
-				--coverItems = coverItems
 			};
 			table.insert(vehicle.cp.tippersWithCovers, data);
 			vehicle.cp.tipperHasCover = true;
@@ -719,8 +721,8 @@ function courseplay:unload_tippers(vehicle, allowedToDrive)
 				local x, y, z = getWorldTranslation(tipper.tipReferencePoints[bestTipReferencePoint].node);
 				local sx, sy, sz = worldToLocal(ctt.bunkerSilo.movingPlanes[1].nodeId, x, y, z);
 				local ex, ey, ez = worldToLocal(ctt.bunkerSilo.movingPlanes[silos].nodeId, x, y, z);
-				local startDistance = sz;
-				local endDistance = ez;
+				local startDistance = Utils.vector2Length(sx, sz);
+				local endDistance = Utils.vector2Length(ex, ez);
 
 				-- Get nearest silo section number (Code snip taken from BunkerSilo:setFillDeltaAt)
 				local nearestDistance = math.huge;
@@ -978,7 +980,7 @@ function courseplay:unload_tippers(vehicle, allowedToDrive)
 
 					local isFirseSiloSection = (vehicle.cp.BGASectionInverted and tipper.cp.BGASelectedSection == silos) or (not vehicle.cp.BGASectionInverted and tipper.cp.BGASelectedSection == 1);
 
-					local startTipDistance = 0;
+					local startTipDistance = 1.5;
 					-- Open hatch before time
 					if courseplay:isPushWagon(tipper) then
 						local openDistance = meterPrSeconds * (animation.animationDuration / animation.animationOpenSpeedScale / 1000);

@@ -1,3 +1,5 @@
+local max, min = math.max, math.min;
+
 function courseplay:handle_mode6(vehicle, allowedToDrive, workSpeed, fillLevelPct, lx , lz, refSpeed )
 	local workTool;
 	local activeTipper = nil
@@ -23,7 +25,7 @@ function courseplay:handle_mode6(vehicle, allowedToDrive, workSpeed, fillLevelPc
 			workArea = true
 			isFinishingWork = true
 		elseif vehicle.cp.finishWork ~= vehicle.cp.stopWork then
-			courseplay:setRecordNumber(vehicle, math.min(vehicle.cp.finishWork + 1,vehicle.maxnumber));
+			courseplay:setRecordNumber(vehicle, min(vehicle.cp.finishWork + 1,vehicle.maxnumber));
 		end;
 	end;
 	if fieldArea then
@@ -62,12 +64,12 @@ function courseplay:handle_mode6(vehicle, allowedToDrive, workSpeed, fillLevelPc
 		
 		--speedlimits														--	TODO (Tom) workTool:doCheckSpeedLimit() is not working for harvesters			
 		if (workTool.doCheckSpeedLimit and workTool:doCheckSpeedLimit()) or workTool.cp.isGrimmeMaxtron620 or workTool.cp.isGrimmeTectron415 then
-			forceSpeedLimit = math.min(forceSpeedLimit, workTool.speedLimit)
+			forceSpeedLimit = min(forceSpeedLimit, workTool.speedLimit)
 		end
 		
 		-- stop while folding
 		if (isFolding or vehicleIsFolding) and vehicle.cp.turnStage == 0 then
-			allowedToDrive = courseplay:brakeToStop(vehicle);
+			allowedToDrive = false;
 			--courseplay:debug(tostring(workTool.name) .. ": isFolding -> allowedToDrive == false", 6);
 		end;
 
@@ -207,10 +209,10 @@ function courseplay:handle_mode6(vehicle, allowedToDrive, workSpeed, fillLevelPc
 					if allowedToDrive then
 						if not specialTool then
 							--unfold
-							local recordnumber = math.min(vehicle.recordnumber + 2, vehicle.maxnumber);
+							local recordnumber = min(vehicle.recordnumber + 2, vehicle.maxnumber);
 							local forecast = Utils.getNoNil(vehicle.Waypoints[recordnumber].ridgeMarker,0)
 							local marker = Utils.getNoNil(vehicle.Waypoints[vehicle.recordnumber].ridgeMarker,0)
-							local waypoint = math.max(marker,forecast)
+							local waypoint = max(marker,forecast)
 							if courseplay:isFoldable(workTool) and not isFolding and not isUnfolded then
 								if not workTool.cp.hasSpecializationPlough then
 									courseplay:debug(string.format('%s: unfold order (foldDir=%d)', nameNum(workTool), workTool.cp.realUnfoldDirection), 17);
@@ -314,14 +316,12 @@ function courseplay:handle_mode6(vehicle, allowedToDrive, workSpeed, fillLevelPc
 							courseplay:debug(string.format("%s: Is starting to reverse. Tip trigger is reset.", nameNum(vehicle)), 13);
 						end;
 
-						local extraLength = 5;
-						if trigger.bunkerSilo ~= nil and trigger.bunkerSilo.movingPlanes ~= nil and vehicle.cp.handleAsOneSilo ~= true then
-							-- We are a bunkerSilo, so we need to add more extraLength to the totalLength.
-							extraLength = 55;
-						end;
-
-						if courseplay:distance(ctx, ctz, trigger_x, trigger_z) > (vehicle.cp.totalLength + extraLength) or startReversing then
+						local distToTrigger = courseplay:distance(ctx, ctz, trigger_x, trigger_z);
+						local isBGA = trigger.bunkerSilo ~= nil and trigger.bunkerSilo.movingPlanes ~= nil
+						local maxDist = isBGA and (vehicle.cp.totalLength + 55) or (vehicle.cp.totalLength + 5);
+						if distToTrigger > maxDist or startReversing then
 							courseplay:resetTipTrigger(vehicle);
+							courseplay:debug(string.format("%s: distance to currentTipTrigger = %d (> %d or start reversing) --> currentTipTrigger = nil", nameNum(vehicle), distToTrigger, maxDist), 1);
 						end
 					end
 
@@ -433,40 +433,44 @@ function courseplay:handle_mode6(vehicle, allowedToDrive, workSpeed, fillLevelPc
 					-- Combines
 					else
 						local tankFillLevelPct = tool.fillLevel * 100 / tool.capacity;
-
-						-- WorkTool Unfolding.
-						if courseplay:isFoldable(workTool) and not isTurnedOn and not isFolding and not isUnfolded then
-							courseplay:debug(string.format('%s: unfold order (foldDir=%d)', nameNum(workTool), workTool.cp.realUnfoldDirection), 17);
-							workTool:setFoldDirection(workTool.cp.realUnfoldDirection);
-						end;
-
-						-- Combine Unfolding
-						if courseplay:isFoldable(tool) then
-							if not vehicleIsFolding and not vehicleIsUnfolded then
-								courseplay:debug(string.format('%s: unfold order (foldDir=%d)', nameNum(tool), tool.cp.realUnfoldDirection), 17);
-								tool:setFoldDirection(tool.cp.realUnfoldDirection);
+						if not vehicle.cp.isReverseBackToPoint then
+							-- WorkTool Unfolding.
+							if courseplay:isFoldable(workTool) and not isTurnedOn and not isFolding and not isUnfolded then
+								courseplay:debug(string.format('%s: unfold order (foldDir=%d)', nameNum(workTool), workTool.cp.realUnfoldDirection), 17);
+								workTool:setFoldDirection(workTool.cp.realUnfoldDirection);
 							end;
-						end;
 
-						if not isFolding and isUnfolded and not vehicleIsFolding and vehicleIsUnfolded and tankFillLevelPct < 100 and not tool.waitingForDischarge and not isTurnedOn and not weatherStop then
-							tool:setIsTurnedOn(true);
+							-- Combine Unfolding
+							if courseplay:isFoldable(tool) then
+								if not vehicleIsFolding and not vehicleIsUnfolded then
+									courseplay:debug(string.format('%s: unfold order (foldDir=%d)', nameNum(tool), tool.cp.realUnfoldDirection), 17);
+									tool:setFoldDirection(tool.cp.realUnfoldDirection);
+								end;
+							end;
+
+							if not isFolding and isUnfolded and not vehicleIsFolding and vehicleIsUnfolded and tankFillLevelPct < 100 and not tool.waitingForDischarge and not isTurnedOn and not weatherStop then
+								tool:setIsTurnedOn(true);
+							end
 						end
 						if tool.pipeIsUnloading and (tool.courseplayers == nil or tool.courseplayers[1] == nil) and tool.cp.stopWhenUnloading and tankFillLevelPct >= 1 then
 							tool.stopForManualUnloader = true
 						end
 							
-						if tankFillLevelPct >= 100 or tool.waitingForDischarge or (tool.cp.stopWhenUnloading and tool.pipeIsUnloading and tool.courseplayers and tool.courseplayers[1] ~= nil) or tool.stopForManualUnloader then
+						if tankFillLevelPct >= 100 
+						or tool.waitingForDischarge 
+						or (tool.cp.stopWhenUnloading and tool.pipeIsUnloading and tool.courseplayers and tool.courseplayers[1] ~= nil and tool.courseplayers[1].cp.modeState ~= 9) 
+						or tool.stopForManualUnloader then
 							tool.waitingForDischarge = true;
-							allowedToDrive = courseplay:brakeToStop(vehicle); -- allowedToDrive = false;
+							allowedToDrive = false;
 							if isTurnedOn then
 								tool:setIsTurnedOn(false);
 							end;
-							if tankFillLevelPct < 80 and (not tool.cp.stopWhenUnloading or (tool.cp.stopWhenUnloading and (tool.courseplayers == nil or tool.courseplayers[1] == nil))) then
+							if workTool:isLowered() then
+									courseplay:lowerImplements(vehicle, false, false);
+							end;
+							if (tankFillLevelPct < 80 and not tool.cp.stopWhenUnloading) or (tool.cp.stopWhenUnloading and tool.fillLevel == 0) then
 								courseplay:setReverseBackDistance(vehicle, 2);
 								tool.waitingForDischarge = false;
-								if not weatherStop and not isTurnedOn then
-									tool:setIsTurnedOn(true);
-								end;
 							end;
 							if tool.stopForManualUnloader and tool.fillLevel == 0 then
 								tool.stopForManualUnloader = false
@@ -487,11 +491,7 @@ function courseplay:handle_mode6(vehicle, allowedToDrive, workSpeed, fillLevelPc
 					if allowedToDrive and isTurnedOn and not workTool:isLowered() and not vehicle.cp.isReverseBackToPoint then
 						courseplay:lowerImplements(vehicle, true, false);
 					end;
-
-					-- If we are moving a bit back, don't lower the tool before we move forward again.
-					if isTurnedOn and workTool:isLowered() and vehicle.cp.isReverseBackToPoint then
-						courseplay:lowerImplements(vehicle, false, false);
-					end;
+				
 				end
 			 --Stop combine
 			elseif vehicle.recordnumber == vehicle.cp.stopWork or vehicle.cp.abortWork ~= nil then
