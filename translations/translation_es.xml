@@ -116,7 +116,6 @@
 		<text name="COURSEPLAY_WRONG_TRAILER" 							 text="remolque incorrecto para este modo" />
 		<text name="COURSEPLAY_WRONG_TOOL" 								 text="herramienta incorrecta para este modo" />
 		<text name="COURSEPLAY_MODE_NOT_SUPPORTED_FOR_VEHICLETYPE" 		 text="este vehículo no es compatible en este modo" />
-		<text name="COURSEPLAY_ESL_NOT_SUPPORTED" 						 text="la version de ESLimiter no es compatible" />
 		<text name="COURSEPLAY_WEATHER_WARNING" 						 text="está esperando a que el tiempo mejore" />
 		<text name="COURSEPLAY_LANE_OFFSET" 							 text="Decalaje del carril" />
 		<text name="COURSEPLAY_TOOL_OFFSET_X" 							 text="Herramienta: decalaje lateral" />
@@ -171,7 +170,6 @@
 		<text name="COURSEPLAY_SYMMETRIC_LANE_CHANGE" 					 text="Cambio al otro carril simétrico" />
 		<text name="COURSEPLAY_UNLOADING_DRIVER_PRIORITY" 				 text="Prioridad del conductor" />
 		<text name="COURSEPLAY_FILLEVEL" 								 text="nivel de llenado" />
-		<text name="COURSEPLAY_NO_AUTOCOMBINE_MODE_7" 					 text="AutoCombine no está soportado" />
 		<text name="COURSEPLAY_PICKUP_JAMMED" 							 text=": la cargadora esta bloqueada" />
 		<text name="COURSEPLAY_BALER_NEEDS_NETS" 						 text=": la encintadora necesita nuevos rollos" />
 		<text name="COURSEPLAY_SCAN_CURRENT_FIELD_EDGES" 				 text="Calcular el perímetro del campo actual" />
