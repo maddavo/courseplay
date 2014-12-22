@@ -4,7 +4,9 @@ local abs, ceil, max, min = math.abs, math.ceil, math.max, math.min;
 function courseplay:openCloseHud(vehicle, open)
 	courseplay:setMouseCursor(vehicle, open);
 	vehicle.cp.hud.show = open;
-	if not open then
+	if open then
+		courseplay:buttonsActiveEnabled(vehicle, 'all');
+	else
 		courseplay.buttons:setHoveredButton(vehicle, nil);
 	end;
 end;
@@ -457,17 +459,17 @@ function courseplay:changeFollowAtFillLevel(vehicle, changeBy)
 end
 
 
-function courseplay:changeTurnRadius(vehicle, changeBy)
-	vehicle.cp.turnRadius = vehicle.cp.turnRadius + changeBy;
-	vehicle.cp.turnRadiusAutoMode = false;
+function courseplay:changeTurnDiameter(vehicle, changeBy)
+	vehicle.cp.turnDiameter = vehicle.cp.turnDiameter + changeBy;
+	vehicle.cp.turnDiameterAutoMode = false;
 
-	if vehicle.cp.turnRadius < 0.5 then
-		vehicle.cp.turnRadius = 0;
+	if vehicle.cp.turnDiameter < 0.5 then
+		vehicle.cp.turnDiameter = 0;
 	end;
 
-	if vehicle.cp.turnRadius <= 0 then
-		vehicle.cp.turnRadiusAutoMode = true;
-		vehicle.cp.turnRadius = vehicle.cp.turnRadiusAuto
+	if vehicle.cp.turnDiameter <= 0 then
+		vehicle.cp.turnDiameterAutoMode = true;
+		vehicle.cp.turnDiameter = vehicle.cp.turnDiameterAuto
 	end;
 end
 
@@ -1544,6 +1546,23 @@ end;
 
 function courseplay:toggleAlwaysUseFourWD(vehicle)
 	vehicle.cp.driveControl.alwaysUseFourWD = not vehicle.cp.driveControl.alwaysUseFourWD;
+end;
+
+function courseplay:setWheelsFrictionScale(vehicle, frictionScale)
+	-- courseplay:debug(('%s: setWheelsFrictionScale (%d)'):format(nameNum(vehicle), frictionScale), 14);
+	print(('%s: setWheelsFrictionScale (%d)'):format(nameNum(vehicle), frictionScale));
+	if vehicle.wheels then
+		for _,wheel in ipairs(vehicle.wheels) do
+			wheel.frictionScale = frictionScale;
+			setWheelShapeTireFriction(wheel.node, wheel.wheelShape, wheel.maxLongStiffness, wheel.maxLatStiffness, wheel.maxLatStiffnessLoad, wheel.frictionScale);
+		end;
+	end;
+
+	if vehicle.attachedImplements then
+		for _,implement in pairs(vehicle.attachedImplements) do
+			courseplay:setWheelsFrictionScale(implement.object, frictionScale);
+		end;
+	end;
 end;
 
 ----------------------------------------------------------------------------------------------------

@@ -101,7 +101,7 @@ function courseplay:isPushWagon(workTool)
 	return workTool.typeName:match("forageWagon") or workTool.cp.hasSpecializationSiloTrailer or workTool.cp.isPushWagon;
 end;
 function courseplay:isSpecialChopper(workTool)
-	return workTool.typeName:match("woodCrusherTrailer") 
+	return workTool.typeName == "woodCrusherTrailer" or workTool.cp.isPoettingerMex5
 end
 
 -- UPDATE WORKTOOL DATA
@@ -297,14 +297,14 @@ function courseplay:updateWorkTools(vehicle, workTool, isImplement)
 			courseplay:setMinHudPage(vehicle, vehicle.cp.workTools[vehicle.cp.attachedCombineIdx]);
 		end;
 
-		-- TURN RADIUS
-		--if CpManager.isDeveloper then
-		--	-- New Turn Radius Calculation
-		--	courseplay:setAutoTurnRadius(vehicle, hasWorkTool);
-		--else
+		-- TURN DIAMETER
+		if CpManager.isDeveloper then
+			-- New Turn Radius Calculation
+			courseplay:setAutoTurnDiameter(vehicle, hasWorkTool);
+		else
 			-- Old Turn Radius Calculation
-			courseplay:setOldAutoTurnradius(vehicle, hasWorkTool);
-		--end;
+			courseplay:setOldAutoTurnDiameter(vehicle, hasWorkTool);
+		end;
 
 		-- TIP REFERENCE POINTS
 		courseplay:setTipRefOffset(vehicle);
@@ -494,31 +494,39 @@ function courseplay:setTipperCoverData(vehicle)
 	end;
 end;
 
-function courseplay:setAutoTurnRadius(vehicle, hasWorkTool)
+function courseplay:setAutoTurnDiameter(vehicle, hasWorkTool)
+	cpPrintLine(6, 3);
 	local turnRadius, turnRadiusAuto = 10, 10;
 
-	-- Use Giants calculated turning radius if pressent
-	if vehicle.maxTurningRadius then
-		vehicle.cp.turnRadiusAuto = abs(vehicle.maxTurningRadius);
+	vehicle.cp.turnDiameterAuto = vehicle.cp.vehicleTurnRadius * 2;
+	courseplay:debug(('%s: Set turnDiameterAuto to %.2fm (2 x vehicleTurnRadius)'):format(nameNum(vehicle), vehicle.cp.turnDiameterAuto), 6);
 
-	-- No Giants turning radius, so we calculate it our self.
-	else
-		vehicle.cp.turnRadiusAuto = 85
+	-- Check if we have worktools and if we are in a valid mode
+	if hasWorkTool and (vehicle.cp.mode == 2 or vehicle.cp.mode == 3 or vehicle.cp.mode == 4 or vehicle.cp.mode == 6) then
+		courseplay:debug(('%s: getHighestToolTurnDiameter(%s)'):format(nameNum(vehicle), vehicle.name), 6);
+
+		local toolTurnDiameter = courseplay:getHighestToolTurnDiameter(vehicle);
+
+		-- If the toolTurnDiameter is bigger than the turnDiameterAuto, then set turnDiameterAuto to toolTurnDiameter
+		if toolTurnDiameter > vehicle.cp.turnDiameterAuto then
+			courseplay:debug(('%s: toolTurnDiameter(%.2fm) > turnDiameterAuto(%.2fm), turnDiameterAuto set to %.2fm'):format(nameNum(vehicle), toolTurnDiameter, vehicle.cp.turnDiameterAuto, toolTurnDiameter), 6);
+			vehicle.cp.turnDiameterAuto = toolTurnDiameter;
+		end;
 	end;
 
-	if vehicle.cp.turnRadiusAutoMode then
-		vehicle.cp.turnRadius = vehicle.cp.turnRadiusAuto;
-		--if abs(vehicle.cp.turnRadius) > 50 then
-		--	vehicle.cp.turnRadius = 15
-		--end
+
+	if vehicle.cp.turnDiameterAutoMode then
+		vehicle.cp.turnDiameter = vehicle.cp.turnDiameterAuto;
+		courseplay:debug(('%s: turnDiameterAutoMode is active: turnDiameter set to %.2fm'):format(nameNum(vehicle), vehicle.cp.turnDiameterAuto), 6);
 	end;
+	cpPrintLine(6, 1);
 end;
 
-function courseplay:setOldAutoTurnradius(vehicle, hasWorkTool)
+function courseplay:setOldAutoTurnDiameter(vehicle, hasWorkTool)
 	local sinAlpha = 0;		-- Sinus vom Lenkwinkel
 	local wheelbase = 0;	-- Radstand
 	local track = 0;		-- Spurweite
-	local turnRadius = 0;	-- Wendekreis unbereinigt
+	local turnDiameter = 0;	-- Wendekreis unbereinigt
 	local xerion = false
 	if vehicle.foundWheels == nil then
 		vehicle.foundWheels = {}
@@ -555,27 +563,27 @@ function courseplay:setOldAutoTurnradius(vehicle, hasWorkTool)
 		end	 
 		track  = courseplay:distance(wh1X, wh1Z, wh2X, wh2Z)
 		wheelbase = courseplay:distance(wh1X, wh1Z, wh3X, wh3Z)
-		turnRadius = 2*wheelbase/sinAlpha+track
+		turnDiameter = 2*wheelbase/sinAlpha+track
 		vehicle.foundWheels = {}
 	else
-		turnRadius = vehicle.cp.turnRadius                  -- Kasi and Co are not supported. Nobody does hauling with a Kasi or Quadtrack !!!
+		turnDiameter = vehicle.cp.turnDiameter                  -- Kasi and Co are not supported. Nobody does hauling with a Kasi or Quadtrack !!!
 	end;
 	
 	if hasWorkTool and (vehicle.cp.mode == 2 or vehicle.cp.mode == 3 or vehicle.cp.mode == 4 or vehicle.cp.mode == 6) then --TODO (Jakob): I've added modes 3, 4 & 6 - needed?
-		vehicle.cp.turnRadiusAuto = turnRadius;
-		--print(string.format("vehicle.cp.workTools[1].sizeLength = %s  turnRadius = %s", tostring(vehicle.cp.workTools[1].sizeLength),tostring( turnRadius)))
-		if vehicle.cp.numWorkTools == 1 and vehicle.cp.workTools[1].attacherVehicle ~= vehicle and (vehicle.cp.workTools[1].sizeLength > turnRadius) then
-			vehicle.cp.turnRadiusAuto = vehicle.cp.workTools[1].sizeLength;
+		vehicle.cp.turnDiameterAuto = turnDiameter;
+		--print(string.format("vehicle.cp.workTools[1].sizeLength = %s  turnDiameter = %s", tostring(vehicle.cp.workTools[1].sizeLength),tostring( turnDiameter)))
+		if vehicle.cp.numWorkTools == 1 and vehicle.cp.workTools[1].attacherVehicle ~= vehicle and (vehicle.cp.workTools[1].sizeLength > turnDiameter) then
+			vehicle.cp.turnDiameterAuto = vehicle.cp.workTools[1].sizeLength;
 		end;
 		if (vehicle.cp.numWorkTools > 1) then
-			vehicle.cp.turnRadiusAuto = turnRadius * 1.5;
+			vehicle.cp.turnDiameterAuto = turnDiameter * 1.5;
 		end
 	end;
 
-	if vehicle.cp.turnRadiusAutoMode then
-		vehicle.cp.turnRadius = vehicle.cp.turnRadiusAuto;
-		if abs(vehicle.cp.turnRadius) > 50 then
-			vehicle.cp.turnRadius = 15
+	if vehicle.cp.turnDiameterAutoMode then
+		vehicle.cp.turnDiameter = vehicle.cp.turnDiameterAuto;
+		if abs(vehicle.cp.turnDiameter) > 50 then
+			vehicle.cp.turnDiameter = 15
 		end
 	end;
 end

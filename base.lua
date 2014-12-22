@@ -1,3 +1,5 @@
+local floor = math.floor;
+
 function courseplay.prerequisitesPresent(specializations)
 	return true;
 end
@@ -174,7 +176,7 @@ function courseplay:load(xmlFile)
 	};
 
 	self.cp.toolsDirty = false
-
+	self.cp.tempWheelFrictionScale = 1;
 	self.cp.orgRpm = nil;
 
 	-- data basis for the Course list
@@ -346,9 +348,15 @@ function courseplay:load(xmlFile)
 	self.cp.refillUntilPct = 100;
 
 	--self.turn_factor = nil --TODO: is never set, but used in mode2:816 in localToWorld function
-	self.cp.turnRadius = 10;
-	self.cp.turnRadiusAuto = 10;
-	self.cp.turnRadiusAutoMode = true;
+	courseplay:setAckermannSteeringInfo(self, xmlFile);
+	--cpPrintLine(nil, 3);
+	self.cp.vehicleTurnRadius = courseplay:getVehicleTurnRadius(self);
+	--cpPrintLine();
+	--print(("%s: vehicleTurnRadius = %.2f"):format(self.name, self.cp.vehicleTurnRadius));
+	--cpPrintLine();
+	self.cp.turnDiameter = self.cp.vehicleTurnRadius * 2;
+	self.cp.turnDiameterAuto = self.cp.vehicleTurnRadius * 2;
+	self.cp.turnDiameterAutoMode = true;
 
 	--Offset
 	self.cp.laneOffset = 0;
@@ -498,6 +506,14 @@ function courseplay:draw()
 				end
 			end			
 			renderText(0.2, 0.045, 0.02, string.format("mode[%s] speed: %s",mode,tostring(speed)));
+		end	
+		if (self.cp.mode == 2 or self.cp.mode ==3) and self.cp.activeCombine ~= nil then
+			local combine = self.cp.activeCombine	
+			renderText(0.2,0.255,0.02,string.format("combine.lastSpeedReal: %.6f ",combine.lastSpeedReal*3600))
+			renderText(0.2,0.225,0.02,"combine.turnStage: "..combine.turnStage)
+			renderText(0.2,0.195,0.02,"combine.cp.turnStage: "..combine.cp.turnStage)
+			renderText(0.2,0.165,0.02,"combine.acTurnStage: "..combine.acTurnStage)
+			renderText(0.2,0.135,0.02,"combineIsTurning: "..tostring(self.cp.mode2DebugTurning ))
 		end	
 	end
 	--DEBUG SHOW DIRECTIONNODE
@@ -785,6 +801,45 @@ function courseplay:update(dt)
 			self.cp[v .. "Memory"] = courseplay:checkForChangeAndBroadcast(self, "self.cp." .. v , self.cp[v], self.cp[v .. "Memory"]);
 		end;
 	end;
+	
+	
+	if self.cp.collidingVehicleId ~= nil and g_currentMission.nodeToVehicle[self.cp.collidingVehicleId].isCpPathvehicle then
+		pathVehicle = g_currentMission.nodeToVehicle[self.cp.collidingVehicleId]
+		--print("update speed")
+		if pathVehicle.speedDisplayDt == nil then
+			pathVehicle.speedDisplayDt = 0
+			pathVehicle.lastSpeed = 0
+			pathVehicle.lastSpeedReal = 0
+			pathVehicle.movingDirection = 1
+		end
+		pathVehicle.speedDisplayDt = pathVehicle.speedDisplayDt + dt
+		if pathVehicle.speedDisplayDt > 100 then
+			local newX, newY, newZ = getWorldTranslation(pathVehicle.rootNode)
+			if pathVehicle.lastPosition == nil then
+			  pathVehicle.lastPosition = {
+				newX,
+				newY,
+				newZ
+			  }
+			end
+			local lastMovingDirection = pathVehicle.movingDirection
+			local dx, dy, dz = worldDirectionToLocal(pathVehicle.rootNode, newX - pathVehicle.lastPosition[1], newY - pathVehicle.lastPosition[2], newZ - pathVehicle.lastPosition[3])
+			if dz > 0.001 then
+			  pathVehicle.movingDirection = 1
+			elseif dz < -0.001 then
+			  pathVehicle.movingDirection = -1
+			else
+			  pathVehicle.movingDirection = 0
+			end
+			pathVehicle.lastMovedDistance = Utils.vector3Length(dx, dy, dz)
+			local lastLastSpeedReal = pathVehicle.lastSpeedReal
+			pathVehicle.lastSpeedReal = pathVehicle.lastMovedDistance * 0.01
+			pathVehicle.lastSpeedAcceleration = (pathVehicle.lastSpeedReal * pathVehicle.movingDirection - lastLastSpeedReal * lastMovingDirection) * 0.01
+			pathVehicle.lastSpeed = pathVehicle.lastSpeed * 0.85 + pathVehicle.lastSpeedReal * 0.15
+			pathVehicle.lastPosition[1], pathVehicle.lastPosition[2], pathVehicle.lastPosition[3] = newX, newY, newZ
+			pathVehicle.speedDisplayDt = pathVehicle.speedDisplayDt - 100
+		 end
+	end
 end; --END update()
 
 --[[
@@ -898,7 +953,7 @@ function courseplay:readStream(streamId, connection)
 	self.cp.automaticCoverHandling = streamDebugReadBool(streamId);
 	self.cp.automaticUnloadingOnField = streamDebugReadBool(streamId);
 	courseplay:setCpMode(self, streamDebugReadInt32(streamId));
-	self.cp.turnRadiusAuto = streamDebugReadFloat32(streamId)
+	self.cp.turnDiameterAuto = streamDebugReadFloat32(streamId)
 	self.cp.canDrive = streamDebugReadBool(streamId);
 	self.cp.combineOffsetAutoMode = streamDebugReadBool(streamId);
 	self.cp.combineOffset = streamDebugReadFloat32(streamId)
@@ -931,8 +986,8 @@ function courseplay:readStream(streamId, connection)
 	self.cp.tipperOffset = streamDebugReadFloat32(streamId)
 	self.cp.tipperHasCover = streamDebugReadBool(streamId);
 	self.cp.workWidth = streamDebugReadFloat32(streamId) 
-	self.cp.turnRadiusAutoMode = streamDebugReadBool(streamId);
-	self.cp.turnRadius = streamDebugReadFloat32(streamId)
+	self.cp.turnDiameterAutoMode = streamDebugReadBool(streamId);
+	self.cp.turnDiameter = streamDebugReadFloat32(streamId)
 	self.cp.speeds.useRecordingSpeed = streamDebugReadBool(streamId) 
 	self.cp.coursePlayerNum = streamReadFloat32(streamId)
 	self.cp.laneOffset = streamDebugReadFloat32(streamId)
@@ -1016,7 +1071,7 @@ function courseplay:writeStream(streamId, connection)
 	streamDebugWriteBool(streamId, self.cp.automaticCoverHandling)
 	streamDebugWriteBool(streamId, self.cp.automaticUnloadingOnField)
 	streamDebugWriteInt32(streamId,self.cp.mode)
-	streamDebugWriteFloat32(streamId,self.cp.turnRadiusAuto)
+	streamDebugWriteFloat32(streamId,self.cp.turnDiameterAuto)
 	streamDebugWriteBool(streamId, self.cp.canDrive)
 	streamDebugWriteBool(streamId, self.cp.combineOffsetAutoMode);
 	streamDebugWriteFloat32(streamId,self.cp.combineOffset)
@@ -1049,8 +1104,8 @@ function courseplay:writeStream(streamId, connection)
 	streamDebugWriteFloat32(streamId,self.cp.tipperOffset)
 	streamDebugWriteBool(streamId, self.cp.tipperHasCover)
 	streamDebugWriteFloat32(streamId,self.cp.workWidth);
-	streamDebugWriteBool(streamId,self.cp.turnRadiusAutoMode)
-	streamDebugWriteFloat32(streamId,self.cp.turnRadius)
+	streamDebugWriteBool(streamId,self.cp.turnDiameterAutoMode)
+	streamDebugWriteFloat32(streamId,self.cp.turnDiameter)
 	streamDebugWriteBool(streamId,self.cp.speeds.useRecordingSpeed)
 	streamDebugWriteFloat32(streamId,self.cp.coursePlayerNum);
 	streamDebugWriteFloat32(streamId,self.cp.laneOffset)
@@ -1149,10 +1204,16 @@ function courseplay:loadFromAttributesAndNodes(xmlFile, key, resetVehicles)
 		-- SPEEDS
 		curKey = key .. '.courseplay.speeds';
 		self.cp.speeds.useRecordingSpeed = Utils.getNoNil(getXMLBool(xmlFile, curKey .. '#useRecordingSpeed'), true);
-		self.cp.speeds.unload 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#unload'), 6);
-		self.cp.speeds.turn 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#turn'),  10);
-		self.cp.speeds.field 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#field'), 24);
-		self.cp.speeds.street 			 = Utils.getNoNil( getXMLInt(xmlFile, curKey .. '#max'),   50);
+		-- use string so we can get both ints and proper floats without LUA's rounding errors
+		-- if float speeds (old speed system) are loaded, the default speeds are used instead
+		local unload = floor(tonumber(getXMLString(xmlFile, curKey .. '#unload') or '0'));
+		local turn   = floor(tonumber(getXMLString(xmlFile, curKey .. '#turn')	 or '0'));
+		local field  = floor(tonumber(getXMLString(xmlFile, curKey .. '#field')	 or '0'));
+		local street = floor(tonumber(getXMLString(xmlFile, curKey .. '#max')	 or '0'));
+		if unload ~= 0	then self.cp.speeds.unload	= unload; end;
+		if turn ~= 0	then self.cp.speeds.turn	= turn;   end;
+		if field ~= 0	then self.cp.speeds.field	= field;  end;
+		if street ~= 0	then self.cp.speeds.street	= street; end;
 
 		-- MODE 2
 		curKey = key .. '.courseplay.combi';
@@ -1161,7 +1222,7 @@ function courseplay:loadFromAttributesAndNodes(xmlFile, key, resetVehicles)
 		self.cp.combineOffsetAutoMode = Utils.getNoNil( getXMLBool(xmlFile, curKey .. '#combineOffsetAutoMode'), true);
 		self.cp.followAtFillLevel 	  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#fillFollow'),			 50);
 		self.cp.driveOnAtFillLevel 	  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#fillDriveOn'),			 90);
-		self.cp.turnRadius 			  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#turnRadius'),			 10);
+		self.cp.turnDiameter		  = Utils.getNoNil(  getXMLInt(xmlFile, curKey .. '#turnDiameter'),			 self.cp.vehicleTurnRadius * 2);
 		self.cp.realisticDriving 	  = Utils.getNoNil( getXMLBool(xmlFile, curKey .. '#realisticDriving'),		 true);
 
 		-- MODES 4 / 6
@@ -1266,7 +1327,7 @@ function courseplay:getSaveAttributesAndNodes(nodeIdent)
 	--NODES
 	local cpOpen = string.format('<courseplay aiMode=%q courses=%q openHudWithMouse=%q lights=%q visualWaypoints=%q waitTime=%q multiSiloSelectedFillType=%q>', tostring(self.cp.mode), tostring(table.concat(self.cp.loadedCourses, ",")), tostring(self.cp.hud.openWithMouse), tostring(self.cp.warningLightsMode), tostring(self.cp.visualWaypointsMode), tostring(self.cp.waitTime), Fillable.fillTypeIntToName[self.cp.multiSiloSelectedFillType]);
 	local speeds = string.format('<speeds useRecordingSpeed=%q unload="%d" turn="%d" field="%d" max="%d" />', tostring(self.cp.speeds.useRecordingSpeed), self.cp.speeds.unload, self.cp.speeds.turn, self.cp.speeds.field, self.cp.speeds.street);
-	local combi = string.format('<combi tipperOffset="%.1f" combineOffset="%.1f" combineOffsetAutoMode=%q fillFollow="%d" fillDriveOn="%d" turnRadius="%d" realisticDriving=%q />', self.cp.tipperOffset, self.cp.combineOffset, tostring(self.cp.combineOffsetAutoMode), self.cp.followAtFillLevel, self.cp.driveOnAtFillLevel, self.cp.turnRadius, tostring(self.cp.realisticDriving));
+	local combi = string.format('<combi tipperOffset="%.1f" combineOffset="%.1f" combineOffsetAutoMode=%q fillFollow="%d" fillDriveOn="%d" turnDiameter="%d" realisticDriving=%q />', self.cp.tipperOffset, self.cp.combineOffset, tostring(self.cp.combineOffsetAutoMode), self.cp.followAtFillLevel, self.cp.driveOnAtFillLevel, self.cp.turnDiameter, tostring(self.cp.realisticDriving));
 	local fieldWork = string.format('<fieldWork workWidth="%.1f" ridgeMarkersAutomatic=%q offsetData=%q abortWork="%d" refillUntilPct="%d" />', self.cp.workWidth, tostring(self.cp.ridgeMarkersAutomatic), offsetData, Utils.getNoNil(self.cp.abortWork, 0), self.cp.refillUntilPct);
 	local shovels, combine = '', '';
 	if shovelRotsAttrNodes or shovelTransAttrNodes then
