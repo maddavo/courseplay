@@ -35,6 +35,22 @@ function courseplay:createNewLinkedNode(object, nodeName, linkToNode)
 	return node;
 end;
 
+function courseplay:deleteCollisionVehicle(vehicle)
+	if vehicle.cp.collidingVehicleId ~= nil  then
+		local Id = vehicle.cp.collidingVehicleId
+		if g_currentMission.nodeToVehicle[Id].isCpPathvehicle  then
+			g_currentMission.nodeToVehicle[Id] = nil
+		end
+		vehicle.cp.collidingObjects.all[Id] = nil
+		--vehicle.CPnumCollidingVehicles = max(vehicle.CPnumCollidingVehicles - 1, 0);
+		--if vehicle.CPnumCollidingVehicles == 0 then
+		--vehicle.numCollidingVehicles[triggerId] = max(vehicle.numCollidingVehicles[triggerId]-1, 0);
+		vehicle.cp.collidingObjects[4][Id] = nil
+		vehicle.cp.collidingVehicleId = nil
+		courseplay:debug(string.format('%s: 	deleteCollisionVehicle: setting "collidingVehicleId" to nil', nameNum(vehicle)), 3);
+	end
+end
+
 --- courseplay:findJointNodeConnectingToNode(workTool, fromNode, toNode)
 --	Returns: (node, backtrack, rotLimits)
 --		node will return either:		1. The jointNode that connects to the toNode,
@@ -141,7 +157,8 @@ function courseplay:getDistances(object)
 	-- IMPLEMENTS OR TRAILERS
 	else
 		local node = object.attacherJoint.node;
-		if object.attacherJoint.rootNode ~= object.rootNode then
+		local isHookLift = courseplay:isHookLift(object);
+		if object.attacherJoint.rootNode ~= object.rootNode and not isHookLift then
 			local tempNode, backTrack = courseplay:findJointNodeConnectingToNode(object, object.attacherJoint.rootNode, object.rootNode);
 			if tempNode and backTrack then
 				node = tempNode;
@@ -178,7 +195,7 @@ function courseplay:getDistances(object)
 		setRotation(node, 0, 0, 0);
 
 		-- Find the distance from attacherJoint to rear wheel
-		if object.wheels and #object.wheels > 0 then
+		if object.wheels and #object.wheels > 0 and not isHookLift then
 			local length = 0;
 			for _, wheel in ipairs(object.wheels) do
 				local nx, ny, nz = getWorldTranslation(wheel.driveNode);
@@ -1038,7 +1055,7 @@ function courseplay:setAckermannSteeringInfo(vehicle, xmlFile)
 			while true do
 				local key = mainKey .. "rotCenterWheel" .. tostring(i);
 				local val = getXMLInt(xmlFile, key);
-				if val then
+				if val and vehicle.wheels[val + 1].driveNode then
 					if not ASInfo.rotCenterWheels then
 						ASInfo.rotCenterWheels = {};
 					end;
@@ -1054,23 +1071,6 @@ function courseplay:setAckermannSteeringInfo(vehicle, xmlFile)
 		end;
 	end;
 end;
-
-
-function courseplay:deleteCollisionVehicle(vehicle)
-	if vehicle.cp.collidingVehicleId ~= nil  then
-		local Id = vehicle.cp.collidingVehicleId
-		if g_currentMission.nodeToVehicle[Id].isCpPathvehicle  then
-			g_currentMission.nodeToVehicle[Id] = nil
-		end
-		vehicle.cp.collidingObjects.all[Id] = nil
-		--vehicle.CPnumCollidingVehicles = max(vehicle.CPnumCollidingVehicles - 1, 0);
-		--if vehicle.CPnumCollidingVehicles == 0 then
-		--vehicle.numCollidingVehicles[triggerId] = max(vehicle.numCollidingVehicles[triggerId]-1, 0);
-		vehicle.cp.collidingObjects[4][Id] = nil
-		vehicle.cp.collidingVehicleId = nil
-		courseplay:debug(string.format('%s: 	deleteCollisionVehicle: setting "collidingVehicleId" to nil', nameNum(vehicle)), 3);
-	end
-end
 
 function courseplay:setPathVehiclesSpeed(vehicle,dt)
 	pathVehicle = g_currentMission.nodeToVehicle[vehicle.cp.collidingVehicleId]

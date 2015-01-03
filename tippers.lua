@@ -123,6 +123,12 @@ end;
 function courseplay:isSpecialChopper(workTool)
 	return workTool.typeName == "woodCrusherTrailer" or workTool.cp.isPoettingerMex5
 end
+function courseplay:isHookLift(workTool)
+	if workTool.attacherJoint then
+		return workTool.attacherJoint.jointType == Vehicle.jointTypeNameToInt["hookLift"];
+	end;
+	return false;
+end
 
 -- UPDATE WORKTOOL DATA
 function courseplay:updateWorkTools(vehicle, workTool, isImplement)
