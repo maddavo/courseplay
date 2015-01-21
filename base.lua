@@ -106,6 +106,7 @@ function courseplay:load(xmlFile)
 
 	-- CP mode
 	self.cp.mode = 5;
+	courseplay:setNextPrevModeVars(self);
 	self.cp.modeState = 0
 	self.cp.mode2nextState = nil;
 	self.cp.startWork = nil
@@ -552,23 +553,37 @@ function courseplay:draw()
 			end;
 		end;
 
-		if self.cp.canDrive and modifierPressed then
-			if isDriving then
-				g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_STOP_COURSE'), InputBinding.COURSEPLAY_START_STOP);
-				if self.cp.HUD1wait then
-					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_CONTINUE'), InputBinding.COURSEPLAY_CANCELWAIT);
-				end;
-				if self.cp.HUD1noWaitforFill then
-					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_DRIVE_NOW'), InputBinding.COURSEPLAY_DRIVENOW);
+		if modifierPressed then
+			if self.cp.canDrive then
+				if isDriving then
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_STOP_COURSE'), InputBinding.COURSEPLAY_START_STOP);
+					if self.cp.HUD1wait then
+						g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_CONTINUE'), InputBinding.COURSEPLAY_CANCELWAIT);
+					end;
+					if self.cp.HUD1noWaitforFill then
+						g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_DRIVE_NOW'), InputBinding.COURSEPLAY_DRIVENOW);
+					end;
+				else
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_START_COURSE'), InputBinding.COURSEPLAY_START_STOP);
 				end;
 			else
-				g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_START_COURSE'), InputBinding.COURSEPLAY_START_STOP);
+				if not self.cp.isRecording and not self.cp.recordingIsPaused and self.cp.numWaypoints == 0 then
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_RECORDING_START'), InputBinding.COURSEPLAY_START_STOP);
+				elseif self.cp.isRecording and not self.cp.recordingIsPaused and not self.cp.isRecordingTurnManeuver then
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_RECORDING_STOP'), InputBinding.COURSEPLAY_START_STOP);
+				end;
+			end;
+
+			if self.cp.canSwitchMode then
+				if self.cp.nextMode then
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_NEXTMODE'), InputBinding.COURSEPLAY_NEXTMODE);
+				end;
+				if self.cp.prevMode then
+					g_currentMission:addHelpButtonText(courseplay:loc('COURSEPLAY_PREVMODE'), InputBinding.COURSEPLAY_PREVMODE);
+				end;
 			end;
 		end;
 	end;
-
-	--RENDER
-	courseplay:renderInfoText(self);
 
 	if self:getIsActive() then
 		if self.cp.hud.show then
@@ -589,6 +604,10 @@ function courseplay:draw()
 			courseplay:renderToolTip(self);
 		end;
 	end;
+	
+	--RENDER
+	courseplay:renderInfoText(self);
+	
 end; --END draw()
 
 function courseplay:showWorkWidth(vehicle)
@@ -623,9 +642,10 @@ function courseplay:showWorkWidth(vehicle)
 end;
 
 function courseplay:drawWaypointsLines(vehicle)
-	if not CpManager.isDeveloper or not vehicle.isControlled then return; end;
+	if not CpManager.isDeveloper or not vehicle.isControlled or vehicle ~= g_currentMission.controlledVehicle then return; end;
 
 	local height = 2.5;
+	local r,g,b,a;
 	for i,wp in pairs(vehicle.Waypoints) do
 		if wp.cy == nil or wp.cy == 0 then
 			wp.cy = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, wp.cx, 1, wp.cz);
@@ -635,16 +655,23 @@ function courseplay:drawWaypointsLines(vehicle)
 			np.cy = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, np.cx, 1, np.cz);
 		end;
 
-		if i == 1 then
-			drawDebugPoint(wp.cx, wp.cy + height, wp.cz, 0, 1, 0, 1);
-		elseif i == vehicle.cp.numWaypoints then
-			drawDebugPoint(wp.cx, wp.cy + height, wp.cz, 1, 0, 0, 1);
+		if i == 1 or wp.turnStart then
+			r,g,b,a = 0, 1, 0, 1;
+		elseif i == vehicle.cp.numWaypoints or wp.turnEnd then
+			r,g,b,a = 1, 0, 0, 1;
+		elseif i == vehicle.cp.waypointIndex then
+			r,g,b,a = 0.9, 0, 0.6, 1;
 		else
-			drawDebugPoint(wp.cx, wp.cy + height, wp.cz, 1, 1, 0, 1);
+			r,g,b,a = 1, 1, 0, 1;
 		end;
+		drawDebugPoint(wp.cx, wp.cy + height, wp.cz, r,g,b,a);
 
 		if i < vehicle.cp.numWaypoints then
-			drawDebugLine(wp.cx, wp.cy + height, wp.cz, 0, 1, 1, np.cx, np.cy + height, np.cz, 0, 1, 1);
+			if i + 1 == vehicle.cp.waypointIndex then
+				drawDebugLine(wp.cx, wp.cy + height, wp.cz, 0.9, 0, 0.6, np.cx, np.cy + height, np.cz, 1, 0.4, 0.05);
+			else
+				drawDebugLine(wp.cx, wp.cy + height, wp.cz, 0, 1, 1, np.cx, np.cy + height, np.cz, 0, 1, 1);
+			end;
 		end;
 	end;
 end;
@@ -652,24 +679,32 @@ end;
 function courseplay:update(dt)
 	-- KEYBOARD EVENTS
 	if self:getIsActive() and self.isEntered and InputBinding.isPressed(InputBinding.COURSEPLAY_MODIFIER) then
-		if self.cp.canDrive then
-			if self.cp.isDriving then
-				if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP) then
-					self:setCourseplayFunc("stop", nil, false, 1);
-				elseif self.cp.HUD1wait and InputBinding.hasEvent(InputBinding.COURSEPLAY_CANCELWAIT) then
-					self:setCourseplayFunc('cancelWait', true, false, 1);
-				elseif self.cp.HUD1noWaitforFill and InputBinding.hasEvent(InputBinding.COURSEPLAY_DRIVENOW) then
-					self:setCourseplayFunc("setIsLoaded", true, false, 1);
+		if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP) then
+			if self.cp.canDrive then
+				if self.cp.isDriving then
+					self:setCourseplayFunc('stop', nil, false, 1);
+				else
+					self:setCourseplayFunc('start', nil, false, 1);
 				end;
 			else
-				if InputBinding.hasEvent(InputBinding.COURSEPLAY_START_STOP) then
-					self:setCourseplayFunc("start", nil, false, 1);
+				if not self.cp.isRecording and not self.cp.recordingIsPaused and self.cp.numWaypoints == 0 then
+					self:setCourseplayFunc('start_record', nil, false, 1);
+				elseif self.cp.isRecording and not self.cp.recordingIsPaused and not self.cp.isRecordingTurnManeuver then
+					self:setCourseplayFunc('stop_record', nil, false, 1);
 				end;
 			end;
+		elseif InputBinding.hasEvent(InputBinding.COURSEPLAY_CANCELWAIT) and self.cp.HUD1wait and self.cp.canDrive and self.cp.isDriving then
+			self:setCourseplayFunc('cancelWait', true, false, 1);
+		elseif InputBinding.hasEvent(InputBinding.COURSEPLAY_DRIVENOW) and self.cp.HUD1noWaitforFill and self.cp.canDrive and self.cp.isDriving then
+			self:setCourseplayFunc('setIsLoaded', true, false, 1);
+		elseif self.cp.canSwitchMode and self.cp.nextMode and InputBinding.hasEvent(InputBinding.COURSEPLAY_NEXTMODE) then
+			self:setCourseplayFunc('setCpMode', self.cp.nextMode, false, 1);
+		elseif self.cp.canSwitchMode and self.cp.prevMode and InputBinding.hasEvent(InputBinding.COURSEPLAY_PREVMODE) then
+			self:setCourseplayFunc('setCpMode', self.cp.prevMode, false, 1);
 		end;
 
 		if not self.cp.openHudWithMouse and InputBinding.hasEvent(InputBinding.COURSEPLAY_HUD) then
-			self:setCourseplayFunc('openCloseHud', not self.cp.hud.show);
+			self:setCourseplayFunc('openCloseHud', not self.cp.hud.show, true);
 		end;
 	end; -- self:getIsActive() and self.isEntered and modifierPressed
 	
@@ -793,7 +828,7 @@ function courseplay:update(dt)
 			end
 
 		elseif self.cp.hud.currentPage == 8 then
-			if self:getIsActive() and self.cp.fieldEdge.selectedField.show and self.cp.fieldEdge.selectedField.fieldNum > 0 then
+			if self:getIsActive() and self.cp.fieldEdge.selectedField.show and self.cp.fieldEdge.selectedField.fieldNum > 0 and self == g_currentMission.controlledVehicle then
 				courseplay:showFieldEdgePath(self, "selectedField");
 			end;
 		end;
@@ -830,6 +865,7 @@ function courseplay:updateTick(dt)
 
 	--attached or detached implement?
 	if self.cp.toolsDirty then
+		self.cpTrafficCollisionIgnoreList = {}
 		courseplay:reset_tools(self)
 	end
 
@@ -910,7 +946,7 @@ end;
 
 function courseplay:renderInfoText(vehicle)
 	if vehicle.isEntered and vehicle.cp.infoText ~= nil and vehicle.cp.toolTip == nil then
-		local text = ""
+		local text;
 		local what = Utils.splitString(";", vehicle.cp.infoText);
 		
 		if what[1] == "COURSEPLAY_LOADING_AMOUNT"
@@ -927,13 +963,21 @@ function courseplay:renderInfoText(vehicle)
 			end
 		elseif what[1] == "COURSEPLAY_DISTANCE" then  
 			if what[2] then
-				text = string.format("%s: %.1fm", courseplay:loc("COURSEPLAY_DISTANCE"), tonumber(what[2]))
+				local dist = tonumber(what[2]);
+				if dist >= 1000 then
+					text = ('%s: %.1f%s'):format(courseplay:loc('COURSEPLAY_DISTANCE'), dist * 0.001, g_i18n:getMeasuringUnit());
+				else
+					text = ('%s: %d%s'):format(courseplay:loc('COURSEPLAY_DISTANCE'), dist, g_i18n:getText('unit_meter'));
+				end;
 			end
 		else
 			text = courseplay:loc(vehicle.cp.infoText)
-		end
-		courseplay:setFontSettings('white', false, 'left');
-		renderText(courseplay.hud.infoTextPosX, courseplay.hud.infoTextPosY, courseplay.hud.fontSizes.infoText, text);
+		end;
+
+		if text then
+			courseplay:setFontSettings('white', false, 'left');
+			renderText(courseplay.hud.infoTextPosX, courseplay.hud.infoTextPosY, courseplay.hud.fontSizes.infoText, text);
+		end;
 	end;
 end;
 
@@ -1148,6 +1192,7 @@ function courseplay:writeStream(streamId, connection)
 	streamDebugWriteBool(streamId,self.cp.hasShovelStatePositions[3])
 	streamDebugWriteBool(streamId,self.cp.hasShovelStatePositions[4])
 	streamDebugWriteBool(streamId,self.cp.hasShovelStatePositions[5])
+
 	local copyCourseFromDriverID;
 	if self.cp.copyCourseFromDriver ~= nil then
 		copyCourseFromDriverID = networkGetObjectId(self.cp.copyCourseFromDriver)

@@ -376,7 +376,7 @@ function courseplay.hud:setup()
 	-- INGAME MAP ICONS
 	local iconSizePx, minX, minY = 118, 660, 10;
 	self.ingameMapIconsUVs = {};
-	for i=1,courseplay.numAiModes do
+	for i=1,courseplay.NUM_MODES do
 		local col = ((i - 1) % 3) + 1;
 		local line = ceil(i / 3);
 
@@ -401,7 +401,7 @@ function courseplay.hud:setContent(vehicle)
 
 	-- BOTTOM GLOBAL INFO
 	-- mode icon
-	vehicle.cp.hud.content.bottomInfo.showModeIcon = vehicle.cp.mode > 0 and vehicle.cp.mode <= courseplay.numAiModes;
+	vehicle.cp.hud.content.bottomInfo.showModeIcon = vehicle.cp.mode > 0 and vehicle.cp.mode <= courseplay.NUM_MODES;
 
 	-- course name
 	if vehicle.cp.currentCourseName ~= nil then
@@ -450,14 +450,7 @@ function courseplay.hud:setContent(vehicle)
 	end;
 
 	-- CURRENT PAGE
-	if vehicle.cp.hud.currentPage == 1 then
-		if (vehicle.cp.isRecording or vehicle.cp.recordingIsPaused) and vehicle.cp.waypointIndex == 4 and courseplay.utils:hasVarChanged(vehicle, 'waypointIndex') then --record pause action becomes available
-			-- self:setReloadPageOrder(vehicle, 1, true);
-			courseplay:buttonsActiveEnabled(vehicle, 'recording');
-		elseif vehicle:getIsCourseplayDriving() then
-		end;
-
-	elseif vehicle.cp.hud.currentPage == 3 and vehicle:getIsCourseplayDriving() and (vehicle.cp.mode == 2 or vehicle.cp.mode == 3) then
+	if vehicle.cp.hud.currentPage == 3 and vehicle:getIsCourseplayDriving() and (vehicle.cp.mode == 2 or vehicle.cp.mode == 3) then
 		for i,varName in pairs({ 'combineOffset', 'turnDiameter' }) do
 			if courseplay.utils:hasVarChanged(vehicle, varName) then
 				self:setReloadPageOrder(vehicle, 3, true);
@@ -823,7 +816,7 @@ function courseplay.hud:loadPage(vehicle, page)
 
 		vehicle.cp.hud.content.pages[3][3][1].text = courseplay:loc('COURSEPLAY_TURN_RADIUS');
 		if vehicle.cp.turnDiameterAuto ~= nil or vehicle.cp.turnDiameter ~= nil then
-			vehicle.cp.hud.content.pages[3][3][2].text = ('%s %dm'):format(vehicle.cp.turnDiameterAutoMode and '(auto)' or '(mnl)', vehicle.cp.turnDiameter);
+			vehicle.cp.hud.content.pages[3][3][2].text = ('%s %d%s'):format(vehicle.cp.turnDiameterAutoMode and '(auto)' or '(mnl)', vehicle.cp.turnDiameter, g_i18n:getText('unit_meter'));
 		else
 			vehicle.cp.hud.content.pages[3][3][2].text = '---';
 		end;
@@ -854,7 +847,12 @@ function courseplay.hud:loadPage(vehicle, page)
 					vehicle:setCpVar('HUD4savedCombineName',courseplay:loc('COURSEPLAY_COMBINE'),courseplay.isClient);
 				end;
 				if vehicle.cp.savedCombine ~= nil then
-					vehicle.cp.hud.content.pages[4][2][2].text = string.format('%s (%dm)', vehicle.cp.HUD4savedCombineName, courseplay:distanceToObject(vehicle, vehicle.cp.savedCombine));
+					local dist = courseplay:distanceToObject(vehicle, vehicle.cp.savedCombine);
+					if dist >= 1000 then
+						vehicle.cp.hud.content.pages[4][2][2].text = ('%s (%.1f%s)'):format(vehicle.cp.HUD4savedCombineName, dist * 0.001, g_i18n:getMeasuringUnit());
+					else
+						vehicle.cp.hud.content.pages[4][2][2].text = ('%s (%d%s)'):format(vehicle.cp.HUD4savedCombineName, dist, g_i18n:getText('unit_meter'));
+					end;
 				end
 			else
 				vehicle.cp.hud.content.pages[4][2][2].text = courseplay:loc('COURSEPLAY_NONE');
@@ -1006,7 +1004,12 @@ function courseplay.hud:loadPage(vehicle, page)
 		vehicle.cp.hud.content.pages[7][7][1].text = courseplay:loc('COURSEPLAY_COPY_COURSE');
 		if vehicle.cp.copyCourseFromDriver ~= nil then
 			local driverName = vehicle.cp.copyCourseFromDriver.name or courseplay:loc('COURSEPLAY_VEHICLE');
-			vehicle.cp.hud.content.pages[7][7][2].text = string.format('%s (%dm)', driverName, courseplay:distanceToObject(vehicle, vehicle.cp.copyCourseFromDriver));
+			local dist = courseplay:distanceToObject(vehicle, vehicle.cp.copyCourseFromDriver);
+			if dist >= 1000 then
+				vehicle.cp.hud.content.pages[7][7][2].text = ('%s (%.1f%s)'):format(driverName, dist * 0.001, g_i18n:getMeasuringUnit());
+			else
+				vehicle.cp.hud.content.pages[7][7][2].text = ('%s (%d%s)'):format(driverName, dist, g_i18n:getText('unit_meter'));
+			end;
 			vehicle.cp.hud.content.pages[7][8][2].text = '(' .. (vehicle.cp.copyCourseFromDriver.cp.currentCourseName or courseplay:loc('COURSEPLAY_TEMP_COURSE')) .. ')';
 		else
 			vehicle.cp.hud.content.pages[7][7][2].text = courseplay:loc('COURSEPLAY_NONE');
@@ -1305,10 +1308,10 @@ function courseplay.hud:setupVehicleHud(vehicle)
 	-- ##################################################
 	-- Page 1
 	-- setCpMode buttons
-	local totalWidth = (courseplay.numAiModes * wBig) + ((courseplay.numAiModes - 1) * marginBig);
+	local totalWidth = (courseplay.NUM_MODES * wBig) + ((courseplay.NUM_MODES - 1) * marginBig);
 	local baseX = self.baseCenterPosX - totalWidth/2;
 	local y = self.linesButtonPosY[8] + self:pxToNormal(2, 'y');
-	for i=1, courseplay.numAiModes do
+	for i=1, courseplay.NUM_MODES do
 		local posX = baseX + ((i - 1) * (wBig + marginBig));
 		local toolTip = courseplay:loc(('COURSEPLAY_MODE_%d'):format(i));
 
